@@ -42,9 +42,15 @@ commit — nothing checks that they agree.
 
 Two things look wrong and aren't:
 
-- Visibility is gated on `window.isVisible`, **not** `occlusionState`, even
-  though the latter is the documented signal. It reports false for an
-  ordered-front window in this context, which would freeze the animation.
+- Full-screen visibility is gated on either the legacy `ScreenSaverEngine`
+  controller or WallpaperAgent's on-screen compositor surface, **not** just
+  `window.isVisible`, `occlusionState`, or the remote view's own WindowServer
+  entry. On current macOS releases the first stays true after dismissal, while
+  the latter two can be false or absent during genuine extension-hosted
+  playback. Modern launch paths need not keep `ScreenSaverEngine` alive, which
+  is why the WallpaperAgent fallback is required. Embedded previews use
+  `ScreenSaverView.isPreview`; a parked instance checks once per second and
+  does no rendering work.
 - The engine session is recreated per effect cycle rather than kept alive.
   That's what lets settings changes apply without a restart.
 

@@ -169,10 +169,10 @@ final class TTFXRenderer {
     private(set) var cols = 0
     private(set) var rows = 0
 
-    deinit { end() }
+    deinit { end(clearFrame: true) }
 
     func start(effect: String, logo: String, size: NSSize, frameRate: Int) {
-        end()
+        end(clearFrame: true)
         (font, boldFont, cellWidth, cellHeight) = TTFXSettings.metrics(forWidth: size.width)
         cols = max(8, Int(size.width / cellWidth))
         rows = max(4, Int(size.height / cellHeight))
@@ -181,10 +181,13 @@ final class TTFXRenderer {
                                    TTFXSettings.colorMode)
     }
 
-    func end() {
+    func end(clearFrame: Bool = false) {
         if let s = session {
             ttfx_session_free(s)
             session = nil
+        }
+        if clearFrame {
+            frameRows.removeAll(keepingCapacity: false)
         }
     }
 
@@ -361,21 +364,32 @@ private extension Int {
 public final class TTFXSaverView: ScreenSaverView {
     private let renderer = TTFXRenderer()
     private var logo = TTFXSettings.loadLogo()
-    private var holdTicks = 0
+    private var holdUntil: TimeInterval?
     private var lastEffect = ""
     private var fps = TTFXSettings.frameRate
+    private var isParked = false
+    private var lastOnScreenCheck = -Double.infinity
+    private var lastOnScreenResult = false
+
+    /// Keep checking for a resurfaced host without letting a stale host wake
+    /// the CPU at animation frequency. One second is also the maximum delay
+    /// before a newly shown instance resumes.
+    private static let parkedInterval: TimeInterval = 1
+    private static let engineBundleIdentifier = "com.apple.ScreenSaver.Engine"
+    private static let wallpaperBundleIdentifier = "com.apple.wallpaper.agent"
+
+    private var frameInterval: TimeInterval { 1.0 / Double(fps) }
 
     public override init?(frame: NSRect, isPreview: Bool) {
         super.init(frame: frame, isPreview: isPreview)
-        animationTimeInterval = 1.0 / Double(fps)
+        animationTimeInterval = frameInterval
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { return nil }
 
     public override func stopAnimation() {
-        renderer.end()
-        holdTicks = 0
+        park()
         super.stopAnimation()
     }
 
@@ -385,8 +399,9 @@ public final class TTFXSaverView: ScreenSaverView {
         logo = TTFXSettings.loadLogo()
         if TTFXSettings.frameRate != fps {
             fps = TTFXSettings.frameRate
-            animationTimeInterval = 1.0 / Double(fps)
         }
+        animationTimeInterval = frameInterval
+        holdUntil = nil
         let pool = TTFXSettings.enabledEffects
         var pick = pool.randomElement() ?? "beams"
         while pool.count > 1 && pick == lastEffect {
@@ -396,36 +411,80 @@ public final class TTFXSaverView: ScreenSaverView {
         renderer.start(effect: pick, logo: logo, size: bounds.size, frameRate: fps)
     }
 
-    /// macOS keeps ticking screen saver instances that are no longer on
-    /// screen: the host process is documented by Apple's own DTS as using an
-    /// in-process plug-in model it no longer maintains, stopAnimation has not
-    /// been reliably called since Sonoma, and dismissed instances routinely
-    /// linger. Left alone, a parked instance animates a canvas nobody can see
-    /// and costs a real fraction of a core. Everything below is gated on this.
-    /// Deliberately only `isVisible`, not `occlusionState`: the latter is the
-    /// documented "am I visible" signal but reports false even for an
-    /// ordered-front window in a screen-saver-shaped host, and a false
-    /// negative here would freeze the animation rather than merely waste a
-    /// little CPU. Wrong in the cheap direction, on purpose.
-    private var isOnScreen: Bool {
-        guard let window else { return false }
-        return window.isVisible
+    /// `window.isVisible` remains true after macOS 14+ dismisses some legacy
+    /// screen savers, while our own remote view's window is absent from
+    /// WindowServer's on-screen list. Full-screen playback does, however, have
+    /// either the legacy ScreenSaverEngine controller or WallpaperAgent's
+    /// public, on-screen compositor surface. The latter matters for launches
+    /// from System Settings and other modern entry points, which need not keep
+    /// ScreenSaverEngine alive. Embedded previews use ScreenSaverView's
+    /// explicit preview state. The result is cached for a quarter second while
+    /// active and a full second while parked.
+    private func isActuallyOnScreen(now: TimeInterval) -> Bool {
+        let pollInterval = isParked ? Self.parkedInterval : 0.25
+        if now - lastOnScreenCheck < pollInterval { return lastOnScreenResult }
+        lastOnScreenCheck = now
+
+        guard let window, window.isVisible else {
+            lastOnScreenResult = false
+            return false
+        }
+        lastOnScreenResult = isPreview || Self.hasWallpaperSurface || Self.hasLegacyController
+        return lastOnScreenResult
+    }
+
+    private static var hasLegacyController: Bool {
+        !NSRunningApplication
+            .runningApplications(withBundleIdentifier: engineBundleIdentifier)
+            .isEmpty
+    }
+
+    private static var hasWallpaperSurface: Bool {
+        let wallpaperPIDs = Set(NSRunningApplication
+            .runningApplications(withBundleIdentifier: wallpaperBundleIdentifier)
+            .map(\.processIdentifier))
+        guard !wallpaperPIDs.isEmpty,
+              let windows = CGWindowListCopyWindowInfo(.optionOnScreenOnly, kCGNullWindowID)
+                as? [[String: Any]]
+        else { return false }
+
+        return windows.contains { window in
+            guard let ownerPID = window[kCGWindowOwnerPID as String] as? pid_t else {
+                return false
+            }
+            return wallpaperPIDs.contains(ownerPID)
+        }
+    }
+
+    private func park() {
+        renderer.end(clearFrame: true)
+        holdUntil = nil
+        isParked = true
+        lastOnScreenResult = false
+        lastOnScreenCheck = ProcessInfo.processInfo.systemUptime
+        animationTimeInterval = Self.parkedInterval
     }
 
     public override func animateOneFrame() {
-        guard isOnScreen else {
-            // Park: drop the engine session so a lingering instance costs
-            // nothing. It restarts from the top when the view is shown again,
-            // which is what a dismissed screen saver should do anyway.
-            if renderer.isRunning {
-                renderer.end()
-                holdTicks = 0
-            }
+        let now = ProcessInfo.processInfo.systemUptime
+        guard isActuallyOnScreen(now: now) else {
+            if !isParked || renderer.isRunning { park() }
             return
         }
-        if holdTicks > 0 {
-            holdTicks -= 1
-            if holdTicks == 0 { beginSession() }
+
+        if isParked {
+            isParked = false
+            animationTimeInterval = frameInterval
+        }
+        if let deadline = holdUntil {
+            if now >= deadline {
+                beginSession()
+            } else {
+                // The frame is static. Wake at most once per second so we can
+                // still notice dismissal promptly without burning 60–240
+                // timer callbacks per second for the entire hold.
+                animationTimeInterval = min(Self.parkedInterval, deadline - now)
+            }
             return
         }
         if !renderer.isRunning || renderer.gridStale(for: bounds.size) { beginSession() }
@@ -433,7 +492,13 @@ public final class TTFXSaverView: ScreenSaverView {
             setNeedsDisplay(bounds)
         } else {
             renderer.end()
-            holdTicks = max(1, Int(TTFXSettings.holdSeconds * Double(fps)))
+            let seconds = TTFXSettings.holdSeconds
+            if seconds > 0 {
+                holdUntil = now + seconds
+                animationTimeInterval = min(Self.parkedInterval, seconds)
+            } else {
+                beginSession()
+            }
         }
     }
 
@@ -492,7 +557,7 @@ final class TTFXPreviewView: NSView {
     func stop() {
         timer?.invalidate()
         timer = nil
-        renderer.end()
+        renderer.end(clearFrame: true)
     }
 
     private func restart() {
