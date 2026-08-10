@@ -60,6 +60,10 @@ enum TTFXSettings {
     /// frame, so this is both smoothness and animation speed — Omarchy's
     /// screensaver runs tte at 120. The display's refresh rate is the real
     /// ceiling: asking for 120 on a 60 Hz panel just gets 60.
+    ///
+    /// Reads the module defaults, which inside the sandboxed host means the
+    /// container copy, not `~/Library/Preferences/ByHost`. Writing that outer
+    /// path with `defaults -currentHost` changes nothing the saver ever sees.
     static var frameRate: Int {
         let f = defaults?.integer(forKey: "FrameRate") ?? 0
         return (15...240).contains(f) ? f : 60
@@ -376,6 +380,8 @@ public final class TTFXSaverView: ScreenSaverView {
     /// the CPU at animation frequency. One second is also the maximum delay
     /// before a newly shown instance resumes.
     private static let parkedInterval: TimeInterval = 1
+    /// Tick rate while holding the finished frame. See the hold branch.
+    private static let holdTickInterval: TimeInterval = 0.1
     private static let engineBundleIdentifier = "com.apple.ScreenSaver.Engine"
     private static let wallpaperBundleIdentifier = "com.apple.wallpaper.agent"
 
@@ -525,10 +531,16 @@ public final class TTFXSaverView: ScreenSaverView {
             if now >= deadline {
                 beginSession()
             } else {
-                // The frame is static. Wake at most once per second so we can
-                // still notice dismissal promptly without burning 60–240
-                // timer callbacks per second for the entire hold.
-                animationTimeInterval = min(Self.parkedInterval, deadline - now)
+                // Deliberately no `animationTimeInterval` assignment here. The
+                // tick rate for the hold is set once, where the hold begins.
+                //
+                // Assigning the property re-arms the host's timer and it fires
+                // again immediately, so reassigning every tick is a busy spin —
+                // measured at 10,000-46,000 animateOneFrame calls per second
+                // while the property itself read a placid 1.3-1.8 Hz. The value
+                // is not what matters; the act of setting it is. Parking sets
+                // the property once and holds a clean 1.00 Hz, which is the
+                // contrast that isolates this.
             }
             return
         }
@@ -540,7 +552,10 @@ public final class TTFXSaverView: ScreenSaverView {
             let seconds = TTFXSettings.holdSeconds
             if seconds > 0 {
                 holdUntil = now + seconds
-                animationTimeInterval = min(Self.parkedInterval, seconds)
+                // The only place the hold's tick rate is set. 10 Hz bounds the
+                // overshoot past `deadline` at 0.1s while costing a rounding
+                // error next to the frame rate this replaces.
+                animationTimeInterval = min(Self.holdTickInterval, seconds)
             } else {
                 beginSession()
             }

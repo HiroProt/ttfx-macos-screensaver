@@ -94,6 +94,53 @@ own measurement rather than as settled behavior:
   Parked views are cheap — `park` frees the engine session and clears the
   frame — but nothing observed released them.
 
+A second instrumented session, same machine, added two more:
+
+- **`animationTimeInterval` is honored, including while parked** — measured at
+  exactly 1.00 Hz across eight consecutive windows after a park. An earlier
+  reading of this as "the host overrides it and drives at panel rate" was wrong,
+  and wrong because of the preferences trap below.
+- **Both views in an overlap genuinely render.** The stale view logged non-zero
+  `draws`, not merely engine advances, so a concurrent stale instance costs a
+  full second renderer rather than engine time alone.
+
+## The preferences trap that will waste your afternoon
+
+The saver runs inside a sandboxed appex, so `ScreenSaverDefaults` resolves to
+the **container** copy:
+
+    ~/Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/
+        Data/Library/Preferences/ByHost/gg.ka.ttfx.<uuid>.plist
+
+`defaults -currentHost write gg.ka.ttfx ...` writes
+`~/Library/Preferences/ByHost/` instead — a file the running saver never
+opens.
+Pinning settings from the command line to control an experiment therefore does
+nothing, silently, while the saver keeps using whatever the options sheet last
+stored. The sheet is hosted in the same appex, so its writes land correctly;
+only the CLI is fooled.
+
+This cost real time here: a whole measured session was interpreted as the host
+ignoring the frame-rate setting, when the setting had simply never arrived. If
+you pin anything for a test, read it back **from the container path** and
+confirm the value the saver reports, not the value `defaults read` reports.
+
+## Set `animationTimeInterval` once, never per tick
+
+Assigning `animationTimeInterval` re-arms the host's timer and it fires again
+immediately. Assign it on every tick and you have a busy spin, whatever value
+you assign.
+
+The hold used to recompute `min(parkedInterval, deadline - now)` each tick.
+Measured: **10,000-46,000 `animateOneFrame` calls per second** while the
+property itself read a placid 1.3-1.8 Hz. Flooring the value changed nothing,
+which is what isolated the cause — the value was never the problem. Setting it
+once, when the hold begins, took the same windows to **1-12 ticks**.
+
+Parking is the working example: it assigns once and holds a clean 1.00 Hz. Any
+new code that derives an interval from a countdown will reintroduce this, so
+derive it once and leave the property alone.
+
 ## Per-view signals that did not discriminate
 
 If you want to tell *this* view apart from a stale sibling — which would fix
