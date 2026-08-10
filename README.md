@@ -15,6 +15,27 @@ project is the macOS shell around them, modeled on
 **Unofficial** — not affiliated with, endorsed by, or supported by 37signals,
 omacom-io, Basecamp, or ChrisBuilds.
 
+## What you get
+
+- **37 effects**, a different one each cycle — or narrow the shuffle to the
+  ones you like.
+- **Your own logo.** Any plain-text file: FIGlet wordmark, `chafa` conversion
+  of an image, or hand-drawn ASCII.
+- **ANSI art too.** Color already in the file can be discarded, blended with
+  the effect, or preserved exactly.
+- **A live preview** in the settings sheet — a real engine session over your
+  real logo, so you see the effect before you commit to it.
+- **Tuned per display.** The canvas targets a column count rather than a pixel
+  size, so the art is the same relative size on a laptop and a 5K panel.
+- **Idles at zero.** The view does no work at all while it is off screen, which
+  matters more than it should — see [Troubleshooting](#troubleshooting).
+- **Signed and notarized**, universal (Apple Silicon and Intel), macOS 11+.
+
+![effects](docs/effects.png)
+
+Six of the thirty-seven. The full list is in the settings sheet, and every one
+of them is upstream's — see the attribution above.
+
 ## Install
 
 Download the zip from the
@@ -25,6 +46,8 @@ and offers to install it; pick **ttfx** under "Other".
 The download is signed and notarized, so there is no Gatekeeper warning and
 no `xattr` incantation. Universal binary, macOS 11 and later, Apple Silicon
 and Intel.
+
+![install](docs/install.png)
 
 Or with Homebrew:
 
@@ -121,6 +144,8 @@ but give the effects less to animate than foreground glyphs do. Try both.
 
 ## Settings
 
+![settings](docs/settings.png)
+
 Everything is behind **Options…**, and applies at the next effect cycle:
 
 - **Effects** — a checklist of all 37, so the shuffle can be any subset. The
@@ -138,15 +163,22 @@ Everything is behind **Options…**, and applies at the next effect cycle:
   ceiling.
 - **ANSI art color** — as above.
 
-The same knobs are scriptable — the sheet and the saver share one defaults
-domain:
+Those knobs are stored as a ByHost preference domain named `gg.ka.ttfx`, but
+**not the one `defaults` writes by default.** The screen saver runs inside a
+sandboxed host, so its preferences are redirected into that host's container:
 
 ```sh
-defaults -currentHost write gg.ka.ttfx Columns -float 70
-defaults -currentHost write gg.ka.ttfx FrameRate -int 120
-defaults -currentHost write gg.ka.ttfx Effects -array matrix rain waves
-defaults -currentHost delete gg.ka.ttfx Effects        # back to all 37
+# what the saver actually reads
+plutil -p ~/Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/\
+Data/Library/Preferences/ByHost/gg.ka.ttfx.*.plist
 ```
+
+`defaults -currentHost write gg.ka.ttfx …` writes
+`~/Library/Preferences/ByHost/` instead — a file the running saver never opens.
+It succeeds, prints nothing, and changes nothing, which makes it a genuinely
+expensive way to be wrong. The settings sheet is hosted in the same container
+and writes to the right place, so **use Options… to change anything.** The keys
+below describe what the sheet stores:
 
 | Key | Meaning |
 |---|---|
@@ -209,8 +241,12 @@ Release downloads are notarized and don't need this.
 
 ```sh
 rm -rf ~/Library/Screen\ Savers/ttfx.saver
-defaults -currentHost delete gg.ka.ttfx
+rm -f ~/Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/\
+Data/Library/Preferences/ByHost/gg.ka.ttfx.*.plist
 ```
+
+The second line is the preferences, in the sandbox container described under
+[Settings](#settings). Leaving it costs nothing but a few hundred bytes.
 
 ## License
 
