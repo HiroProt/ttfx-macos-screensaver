@@ -10,14 +10,20 @@
 # Signing identity: override with IDENTITY=... if you have more than one.
 #   IDENTITY="Developer ID Application: Your Name (TEAMID)"
 #
-# Notarization credentials — either a stored keychain profile:
-#   xcrun notarytool store-credentials ttfx-notary \
-#     --key ~/path/AuthKey_XXXX.p8 --key-id XXXX --issuer <issuer-uuid>
-#   NOTARY_PROFILE=ttfx-notary ./release.sh --notarize
-# or an App Store Connect API key passed directly:
-#   NOTARY_KEY=~/path/AuthKey_XXXX.p8 NOTARY_KEY_ID=XXXX \
-#   NOTARY_ISSUER=<issuer-uuid> ./release.sh --notarize
-# The issuer UUID is in App Store Connect → Users and Access → Integrations.
+# Notarization credentials, in the order this script looks for them:
+#
+#   1. An Apple ID + app-specific password (no issuer UUID needed):
+#        NOTARY_APPLE_ID=you@example.com NOTARY_TEAM_ID=TEAMID \
+#        NOTARY_PASSWORD=xxxx-xxxx-xxxx-xxxx ./release.sh --notarize
+#      ship.sh pulls exactly these out of 1Password for you.
+#   2. A stored keychain profile:
+#        xcrun notarytool store-credentials ttfx-notary ...
+#        NOTARY_PROFILE=ttfx-notary ./release.sh --notarize
+#   3. An App Store Connect API key:
+#        NOTARY_KEY=~/path/AuthKey_XXXX.p8 NOTARY_KEY_ID=XXXX \
+#        NOTARY_ISSUER=<issuer-uuid> ./release.sh --notarize
+#      The issuer UUID is in App Store Connect → Users and Access →
+#      Integrations. Only this method needs it.
 set -e
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -56,13 +62,16 @@ if [ "$1" = "--notarize" ]; then
   /usr/bin/ditto -c -k --keepParent "$bundle" "$submit"
 
   echo "==> submitting to Apple (this usually takes a few minutes)"
-  if [ -n "$NOTARY_PROFILE" ]; then
+  if [ -n "$NOTARY_APPLE_ID" ] && [ -n "$NOTARY_PASSWORD" ] && [ -n "$NOTARY_TEAM_ID" ]; then
+    set -- --apple-id "$NOTARY_APPLE_ID" --password "$NOTARY_PASSWORD" \
+           --team-id "$NOTARY_TEAM_ID"
+  elif [ -n "$NOTARY_PROFILE" ]; then
     set -- --keychain-profile "$NOTARY_PROFILE"
   elif [ -n "$NOTARY_KEY" ] && [ -n "$NOTARY_KEY_ID" ] && [ -n "$NOTARY_ISSUER" ]; then
     set -- --key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
   else
-    echo "Notarization needs NOTARY_PROFILE, or NOTARY_KEY + NOTARY_KEY_ID + NOTARY_ISSUER." >&2
-    echo "See the header of this script." >&2
+    echo "Notarization needs credentials — see the header of this script." >&2
+    echo "Easiest: ./ship.sh, which reads them from 1Password." >&2
     exit 1
   fi
   xcrun notarytool submit "$submit" "$@" --wait
