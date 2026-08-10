@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# Nothing here writes to the repo — releases are cut from a workstation by
+# ship.sh, not from CI. Least privilege means a compromised action in the
+# build (including anything pulled in from crates.io) cannot push code,
+# move tags, or publish releases.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Universal .saver

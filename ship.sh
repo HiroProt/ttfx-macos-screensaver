@@ -112,12 +112,39 @@ fi
 # --- publish ---------------------------------------------------------------
 
 say "Publishing the GitHub release"
+# Notes are built from commit subjects rather than --generate-notes, which
+# summarises merged PRs and so produces an empty changelog on a repo that
+# lands work directly on main.
+prev=$(git tag --sort=-creatordate | head -1)
+if [ -n "$prev" ]; then
+  changes=$(git log --no-merges --pretty='- %s' "$prev..HEAD")
+  compare="
+
+**Full changelog**: https://github.com/HiroProt/ttfx-macos-screensaver/compare/$prev...$tag"
+else
+  changes=$(git log --no-merges --pretty='- %s')
+  compare=""
+fi
+notes="## Changes
+
+$changes
+
+## Install
+
+\`\`\`sh
+brew install --cask ttfx-screensaver     # new
+brew upgrade --cask ttfx-screensaver     # existing
+\`\`\`
+
+Or download the zip below, unzip, and double-click \`ttfx.saver\`. Signed,
+notarized and stapled, so there's no Gatekeeper prompt. Universal (Apple
+Silicon and Intel), macOS 11 and later.
+
+\`sha256: $sha\`$compare"
+
 git tag -a "$tag" -m "$tag"
 git push -q origin "$tag"
-gh release create "$tag" "$zip" \
-  --title "$tag" \
-  --generate-notes \
-  --notes-start-tag "$(git tag --sort=-creatordate | sed -n 2p)" >/dev/null
+printf '%s' "$notes" | gh release create "$tag" "$zip" --title "$tag" --notes-file - >/dev/null
 echo "  $(gh release view "$tag" --json url --jq .url)"
 
 # The release must be downloadable before the cask points at it, or the

@@ -214,7 +214,7 @@ dependencies = [
 [[package]]
 name = "ttfx"
 version = "0.1.2"
-source = "git+https://github.com/omacom-io/ttfx?tag=v0.1.2#01d48abe7aea10022848f14915ac3aac3bf7c920"
+source = "git+https://github.com/omacom-io/ttfx?rev=01d48abe7aea10022848f14915ac3aac3bf7c920#01d48abe7aea10022848f14915ac3aac3bf7c920"
 dependencies = [
  "clap",
  "clap_complete",
