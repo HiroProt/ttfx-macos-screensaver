@@ -1,0 +1,23 @@
+[package]
+name = "ttfx-ffi"
+version = "0.1.0"
+edition = "2021"
+description = "C API over the ttfx terminal-effects engine, for the macOS screensaver"
+license = "MIT"
+publish = false
+
+[lib]
+# The screensaver links this straight into its bundle executable, so the
+# engine travels with the .saver — no subprocess, which the sandboxed
+# screensaver host would make unreliable anyway.
+crate-type = ["staticlib"]
+
+[dependencies]
+# Upstream, unmodified and pinned. Everything this shim needs is already
+# public API, so there is no fork to keep in sync.
+ttfx = { git = "https://github.com/omacom-io/ttfx", tag = "v0.1.2" }
+clap = { version = "4", features = ["derive"] }
+
+[profile.release]
+lto = true
+codegen-units = 1

@@ -1,0 +1,31 @@
+This screensaver is a thin native shell around other people's work.
+
+    ttfx
+    https://github.com/omacom-io/ttfx
+    MIT License, Copyright (c) 2026 37signals / omacom-io
+
+    TerminalTextEffects
+    https://github.com/ChrisBuilds/terminaltexteffects
+    MIT License, Copyright (c) 2023 ChrisBuilds
+
+Every effect, the animation engine, and the rendering are ttfx's — which is
+itself a byte-exact Rust port of ChrisBuilds' TerminalTextEffects. ttfx is
+consumed here as an unmodified dependency, pinned to a release tag; it is not
+forked and not vendored. Because the engine is statically linked into the
+built bundle, both copyrights above travel with any binary distributed from
+this project, and both appear in LICENSE.
+
+What this project adds is the macOS side: a ScreenSaverView that renders the
+engine's frames with CoreText, an SGR interpreter, the configure sheet, and
+the bundle build. None of the art originates here.
+
+The screensaver's behavior — canvas filling the screen, logo centered, a
+random effect each cycle — is modeled on Omarchy's screensaver
+(https://github.com/basecamp/omarchy, bin/omarchy-cmd-screensaver). That is a
+design credit, not a code one: no Omarchy code is included, only the same
+choice of engine parameters.
+
+This is an unofficial project. It is not affiliated with, endorsed by, or
+supported by 37signals, omacom-io, Basecamp, or ChrisBuilds.
+
+If you enjoy the effects, the credit belongs upstream.

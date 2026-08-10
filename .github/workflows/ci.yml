@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    name: Universal .saver
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Build bundle
+        run: ./build.sh
+      - name: Verify bundle
+        run: |
+          set -e
+          bin=ttfx.saver/Contents/MacOS/ttfx-saver
+          # Both architectures present, or the release is broken for half of
+          # the Macs out there.
+          lipo -archs "$bin" | tee /dev/stderr | grep -q arm64
+          lipo -archs "$bin" | grep -q x86_64
+          # The FFI symbols the Swift side imports must actually be linked in.
+          for sym in ttfx_effect_list ttfx_session_new ttfx_session_next_frame ttfx_session_free; do
+            nm -gU "$bin" | grep -q "_$sym" || { echo "missing symbol: $sym"; exit 1; }
+          done
+          codesign --verify --verbose ttfx.saver
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ttfx.saver-unsigned
+          path: ttfx.saver
