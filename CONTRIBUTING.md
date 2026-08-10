@@ -69,6 +69,53 @@ Two things look wrong and aren't:
 
 Both have comments saying so. Please leave them.
 
+## What the host did in one measured session
+
+One observation, not a law. macOS 26 (Darwin 25.6), single display, one login
+session, five launches through `ScreenSaverEngine`, with the view instrumented
+via `os_log` and a per-instance UUID. Other launch paths, other releases, and
+more than one display are unmeasured. Treat this as a starting point for your
+own measurement rather than as settled behavior:
+
+- **`stopAnimation` was not called once.** Five launches, five dismissals, zero
+  calls. Every park came from `animateOneFrame` noticing it was off screen. In
+  that session recovery depended entirely on `startAnimation` resetting the
+  parked state, which is what that override is for.
+- **The first view was reused on each later launch.** Launch 1 created a view;
+  launches 2 through 5 restarted that same instance *and* created a new one.
+  The views created in between were started once and not woken again before the
+  session ended.
+- **So two instances rendered concurrently** on launches 2 through 5: the
+  genuinely-presenting view and a stale one. The stale view's window kept
+  reporting `isVisible == true`, which is why the host-signal check exists —
+  under an `isVisible`-only gate such a view keeps animating for as long as the
+  host process lives.
+- **No view was deallocated during the session.** One accumulated per launch.
+  Parked views are cheap — `park` frees the engine session and clears the
+  frame — but nothing observed released them.
+
+## Per-view signals that did not discriminate
+
+If you want to tell *this* view apart from a stale sibling — which would fix
+both the two-renderer overlap and the multi-display case — these were measured
+and do not discriminate. Both the live and the stale view report identically:
+
+- `occlusionState.contains(.visible)` — **false for both**, including the view
+  actually on screen. This is the measurement behind rejecting it.
+- The view's own `windowNumber`, looked up in the on-screen window list —
+  **absent for both**, so the remote view has no on-screen WindowServer entry
+  to find.
+
+`window.level` does discriminate: the presenting view sits at `Int32.min + 23`
+(-2147483625, the same level WallpaperAgent's own screen saver surface uses),
+and the stale one is demoted to `0` the moment another launch takes over. Note
+this is *not* `kCGScreenSaverWindowLevelKey` (1000), which the modern host does
+not use at all. It is a promising per-view discriminator and it is deliberately
+not implemented: it was observed on one launch path, on one display, on one
+release, and gating rendering on it is a narrowing — the direction that fails
+to a black screen. Validate across every launch path and a second display
+before trusting it.
+
 ## The picker thumbnail does not work on macOS 26 (Tahoe), and that's not a bug here
 
 `Resources/thumbnail.png` and `thumbnail@2x.png` follow Apple's convention
