@@ -50,6 +50,30 @@ Two things look wrong and aren't:
 
 Both have comments saying so. Please leave them.
 
+## The picker thumbnail does not work on macOS 26 (Tahoe), and that's not a bug here
+
+`Resources/thumbnail.png` and `thumbnail@2x.png` follow Apple's convention
+for a screen saver's tile in the picker. On Tahoe the tile shows a generic
+blue swirl instead, and no amount of fiddling changes it. Before you try:
+
+- The files are installed in the right place at Apple's exact dimensions
+  (90×58 and 180×116), in the same format as Apple's own
+  (`Random.saver`): 8-bit RGBA PNG, non-interlaced, sRGB.
+- It is not a quarantine problem. Clearing `com.apple.quarantine` off the
+  installed bundle changes nothing.
+- It is not a stale cache. Restarting `WallpaperLegacy`, `legacyScreenSaver`
+  and System Settings, and touching the bundle, change nothing.
+- The blue swirl is Apple's stock legacy art — byte for byte what ships as
+  `Random.saver`'s own `thumbnail.png`. `WallpaperLegacyExtension` contains
+  a `Default` asset and log strings for failing to load a legacy thumbnail,
+  so the fallback is deliberate.
+
+Apple's logging for that path is suppressed, so "ignored" and "rejected"
+can't be told apart from outside. The files stay in the bundle because they
+cost 15 KB, they are correct by the documented convention, and older macOS
+releases used them — but do not expect them to do anything on Tahoe, and
+please don't spend an evening on it like I did.
+
 ## Commits and PRs
 
 Explain *why* in the commit message; the diff already shows what. If you
