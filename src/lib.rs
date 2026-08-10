@@ -14,6 +14,7 @@ use std::ffi::{c_char, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use ttfx::effects::EffectCommand;
+use ttfx::engine::animation::ExistingColorHandling;
 use ttfx::engine::canvas::Anchor;
 use ttfx::engine::ctx::{Clock, EngineCtx};
 use ttfx::engine::effect::Effect;
@@ -46,7 +47,14 @@ pub extern "C" fn ttfx_effect_list() -> *const c_char {
 
 /// Build a session: one effect run over `input_utf8` on a canvas of exactly
 /// `canvas_width` x `canvas_height` cells, text centered (the Omarchy
-/// screensaver geometry). Returns NULL on any invalid argument.
+/// screensaver geometry).
+///
+/// `color_mode` decides what happens to SGR color already in the input, which
+/// is what makes ANSI art (as opposed to plain ASCII) worth feeding in:
+/// 0 ignores it and lets the effect own every color, 1 keeps it wherever the
+/// effect is not itself coloring, 2 always keeps it.
+///
+/// Returns NULL on any invalid argument.
 #[unsafe(no_mangle)]
 pub extern "C" fn ttfx_session_new(
     effect_name: *const c_char,
@@ -55,6 +63,7 @@ pub extern "C" fn ttfx_session_new(
     canvas_height: i64,
     frame_rate: i64,
     seed: u64,
+    color_mode: u8,
 ) -> *mut TtfxSession {
     if effect_name.is_null() || input_utf8.is_null() || canvas_width < 1 || canvas_height < 1 {
         return std::ptr::null_mut();
@@ -84,6 +93,11 @@ pub extern "C" fn ttfx_session_new(
             anchor_text: Anchor::C,
             ignore_terminal_dimensions: true,
             frame_rate,
+            existing_color_handling: match color_mode {
+                1 => ExistingColorHandling::Dynamic,
+                2 => ExistingColorHandling::Always,
+                _ => ExistingColorHandling::Ignore,
+            },
             ..TerminalConfig::default()
         };
         let rng = Rng::seeded(seed);

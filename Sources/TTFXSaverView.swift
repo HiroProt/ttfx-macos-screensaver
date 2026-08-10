@@ -65,6 +65,18 @@ enum TTFXSettings {
         return (15...240).contains(f) ? f : 60
     }
 
+    /// What to do with SGR color already in the logo file — the difference
+    /// between plain ASCII art and ANSI art. 0 lets the effect own every
+    /// color, 1 keeps the art's own color wherever the effect is not itself
+    /// coloring, 2 always keeps it.
+    static var colorMode: UInt8 {
+        switch defaults?.string(forKey: "ArtColors") {
+        case "dynamic": return 1
+        case "always": return 2
+        default: return 0
+        }
+    }
+
     /// The effects the shuffle draws from. An empty or unset list means all
     /// of them — the saver must never have nothing to play.
     static var enabledEffects: [String] {
@@ -165,7 +177,8 @@ final class TTFXRenderer {
         cols = max(8, Int(size.width / cellWidth))
         rows = max(4, Int(size.height / cellHeight))
         session = ttfx_session_new(effect, logo, Int64(cols), Int64(rows),
-                                   Int64(frameRate), UInt64.random(in: .min ... .max))
+                                   Int64(frameRate), UInt64.random(in: .min ... .max),
+                                   TTFXSettings.colorMode)
     }
 
     func end() {
@@ -505,6 +518,7 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
                                       target: nil, action: nil)
     private let holdHint = NSTextField(labelWithString: "")
     private let ratePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let colorPopup = NSPopUpButton(frame: .zero, pullsDown: false)
     private let table = NSTableView()
     private let preview = TTFXPreviewView()
     private let selectionHint = NSTextField(labelWithString: "")
@@ -609,6 +623,18 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
         ratePopup.target = self
         ratePopup.action = #selector(rateChanged)
 
+        // Only meaningful for ANSI art — plain ASCII has no color to keep.
+        for (title, key) in [("Let the effect color it", "ignore"),
+                             ("Keep art colors where the effect allows", "dynamic"),
+                             ("Always keep art colors", "always")]
+        {
+            let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            item.representedObject = key
+            colorPopup.menu?.addItem(item)
+        }
+        colorPopup.target = self
+        colorPopup.action = #selector(colorModeChanged)
+
         for hint in [sizeHint, holdHint] {
             hint.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
             hint.textColor = .secondaryLabelColor
@@ -624,6 +650,7 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
             row("Art size:", [smaller, sizeSlider, bigger, sizeHint]),
             row("Hold finished text:", [holdSlider, holdHint]),
             row("Animation:", [ratePopup, NSView()]),
+            row("ANSI art color:", [colorPopup, NSView()]),
             row("", [NSView(), done]),
         ])
         rows.orientation = .vertical
@@ -676,6 +703,10 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
         setSlider(columns: Double(TTFXSettings.targetColumns))
         holdSlider.doubleValue = TTFXSettings.holdSeconds
         ratePopup.selectItem(withTag: TTFXSettings.frameRate)
+        let colorKey = defaults?.string(forKey: "ArtColors") ?? "ignore"
+        colorPopup.selectItem(at: colorPopup.itemArray.firstIndex {
+            $0.representedObject as? String == colorKey
+        } ?? 0)
         enabled = Set(TTFXSettings.enabledEffects)
         table.reloadData()
         if table.selectedRow < 0, !TTFXSettings.effectNames.isEmpty {
@@ -806,6 +837,17 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
     @objc private func rateChanged(_ sender: Any?) {
         defaults?.set(ratePopup.selectedTag(), forKey: "FrameRate")
         defaults?.synchronize()
+    }
+
+    @objc private func colorModeChanged(_ sender: Any?) {
+        let key = colorPopup.selectedItem?.representedObject as? String ?? "ignore"
+        if key == "ignore" {
+            defaults?.removeObject(forKey: "ArtColors")
+        } else {
+            defaults?.set(key, forKey: "ArtColors")
+        }
+        defaults?.synchronize()
+        restartPreviewLogo()
     }
 
     @objc private func dismiss(_ sender: Any?) {

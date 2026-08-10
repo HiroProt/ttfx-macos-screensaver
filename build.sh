@@ -47,6 +47,10 @@ rm -rf "$bundle"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp "$here/Resources/Info.plist" "$bundle/Contents/"
 cp "$here/Resources/logo.txt" "$bundle/Contents/Resources/"
+# thumbnail.png / thumbnail@2x.png are what System Settings shows in the
+# screensaver picker; without them the tile is a generic blue placeholder.
+cp "$here/Resources/thumbnail.png" "$here/Resources/thumbnail@2x.png" \
+   "$bundle/Contents/Resources/"
 # shellcheck disable=SC2086
 lipo -create $archs -output "$bundle/Contents/MacOS/ttfx-saver"
 
