@@ -5,6 +5,9 @@ effects, a random one each cycle.
 
 ![demo](docs/demo.gif)
 
+*That placeholder is just a text file. Point it at your own and it renders the
+same way — see [Use your own logo](#use-your-own-logo).*
+
 Built on **[ttfx](https://github.com/omacom-io/ttfx)** by 37signals/omacom-io —
 itself a byte-exact Rust port of
 **[TerminalTextEffects](https://github.com/ChrisBuilds/terminaltexteffects)**
@@ -33,8 +36,8 @@ omacom-io, Basecamp, or ChrisBuilds.
 
 ![effects](docs/effects.png)
 
-Six of the thirty-seven. The full list is in the settings sheet, and every one
-of them is upstream's — see the attribution above.
+*All 37, each caught somewhere in its animation. Every one of them is
+upstream's — see the attribution above.*
 
 ## Install
 
@@ -48,6 +51,10 @@ no `xattr` incantation. Universal binary, macOS 11 and later, Apple Silicon
 and Intel.
 
 ![install](docs/install.png)
+
+*There is no installer and no app — macOS's own Screen Saver settings is the
+whole interface. Once installed, ttfx appears under **Custom**, and everything
+configurable is behind **Options…**.*
 
 Or with Homebrew:
 
@@ -79,7 +86,8 @@ build.
 Open **Options…** in Screen Saver settings, click **Choose File…**, and pick
 any plain-text file. That's it — it takes effect on the next cycle.
 
-`examples/logos/` has a couple to start from. The art should be plain text;
+`examples/logos/` has a few to start from, including the `YourLogo` placeholder
+from the demo above. The art should be plain text;
 a file wider than the canvas gets clipped, so keep it under about 100
 columns unless you also turn the art size down.
 
