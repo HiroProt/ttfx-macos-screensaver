@@ -166,9 +166,26 @@ final class TTFXRenderer {
     private var session: OpaquePointer?
     private var font = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
     private var boldFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .bold)
-    private var cellWidth: CGFloat = 1
+    private(set) var cellWidth: CGFloat = 1
     private var cellHeight: CGFloat = 1
-    private var frameRows: [NSAttributedString] = []
+    private(set) var frameRows: [NSAttributedString] = []
+    /// Cached cell corrections, thrown away whenever the metrics change. ASCII
+    /// gets a flat table because it is nearly every character an effect emits
+    /// and hashing it per glyph showed up in the frame budget; anything else
+    /// falls back to a dictionary. `.infinity` means "not measured yet", and
+    /// zero means "already exactly one cell". See `cellKern`.
+    private var asciiKern = [CGFloat](repeating: .infinity, count: 128)
+    private var asciiKernBold = [CGFloat](repeating: .infinity, count: 128)
+    private var wideKern: [Character: CGFloat] = [:]
+    private var wideKernBold: [Character: CGFloat] = [:]
+    /// True when every printable ASCII glyph is already exactly one cell, which
+    /// a monospaced face makes true by construction — `cellWidth` is measured
+    /// from "M" in this very font. Measured once per session anyway, because
+    /// "monospaced" is a claim about the font we did not make. When it holds, a
+    /// run with no non-ASCII in it needs no per-character work at all, and that
+    /// is nearly every run of nearly every effect.
+    private var asciiAllOnGrid = false
+    private var asciiAllOnGridBold = false
 
     private(set) var cols = 0
     private(set) var rows = 0
@@ -178,6 +195,12 @@ final class TTFXRenderer {
     func start(effect: String, logo: String, size: NSSize, frameRate: Int) {
         end(clearFrame: true)
         (font, boldFont, cellWidth, cellHeight) = TTFXSettings.metrics(forWidth: size.width)
+        asciiKern = [CGFloat](repeating: .infinity, count: 128)
+        asciiKernBold = [CGFloat](repeating: .infinity, count: 128)
+        wideKern.removeAll(keepingCapacity: true)
+        wideKernBold.removeAll(keepingCapacity: true)
+        asciiAllOnGrid = (32...126).allSatisfy { cellKern(for: Character(UnicodeScalar($0)), bold: false) == nil }
+        asciiAllOnGridBold = (32...126).allSatisfy { cellKern(for: Character(UnicodeScalar($0)), bold: true) == nil }
         cols = max(8, Int(size.width / cellWidth))
         rows = max(4, Int(size.height / cellHeight))
         session = ttfx_session_new(effect, logo, Int64(cols), Int64(rows),
@@ -201,7 +224,7 @@ final class TTFXRenderer {
     @discardableResult
     func advance() -> Bool {
         guard let s = session, let frame = ttfx_session_next_frame(s) else { return false }
-        frameRows = Self.parse(frame: String(cString: frame), font: font, boldFont: boldFont)
+        frameRows = parse(frame: String(cString: frame))
         return true
     }
 
@@ -234,18 +257,51 @@ final class TTFXRenderer {
 
     /// Frame rows come top-first; SGR state persists across rows like a real
     /// terminal, so it threads through the whole frame.
-    private static func parse(frame: String, font: NSFont, boldFont: NSFont) -> [NSAttributedString] {
+    private func parse(frame: String) -> [NSAttributedString] {
         var state = SGRState()
         return frame
             .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { row(of: $0, state: &state, font: font, boldFont: boldFont) }
+            .map { row(of: $0, state: &state) }
     }
 
-    private static func row(
-        of line: Substring, state: inout SGRState, font: NSFont, boldFont: NSFont
-    ) -> NSAttributedString {
+    /// Extra advance this character needs to occupy exactly one cell, or nil if
+    /// it already does.
+    ///
+    /// The canvas is a terminal grid, but a row is drawn as one string with the
+    /// glyphs' natural advances, so a glyph that is not exactly one cell wide
+    /// shifts everything after it. Menlo has no half-width katakana, for
+    /// instance, so `matrix` falls back to Hiragino Sans at 0.83 cells and every
+    /// rain drop drags its row leftward — the wobble that looks like an effect
+    /// bug and is really a text-layout one. Kerning pins each cell back to the
+    /// grid; a glyph genuinely wider than a cell gets a negative adjustment and
+    /// overlaps its neighbour, which is the right trade when the alternative is
+    /// losing the grid entirely.
+    private func cellKern(for ch: Character, bold: Bool) -> CGFloat? {
+        if let ascii = ch.asciiValue {
+            let i = Int(ascii)
+            var k = bold ? asciiKernBold[i] : asciiKern[i]
+            if k == .infinity {
+                k = measureKern(for: ch, bold: bold)
+                if bold { asciiKernBold[i] = k } else { asciiKern[i] = k }
+            }
+            return k == 0 ? nil : k
+        }
+        if let k = bold ? wideKernBold[ch] : wideKern[ch] { return k == 0 ? nil : k }
+        let k = measureKern(for: ch, bold: bold)
+        if bold { wideKernBold[ch] = k } else { wideKern[ch] = k }
+        return k == 0 ? nil : k
+    }
+
+    private func measureKern(for ch: Character, bold: Bool) -> CGFloat {
+        let width = (String(ch) as NSString)
+            .size(withAttributes: [.font: bold ? boldFont : font]).width
+        return abs(width - cellWidth) < 0.01 ? 0 : cellWidth - width
+    }
+
+    private func row(of line: Substring, state: inout SGRState) -> NSAttributedString {
         let out = NSMutableAttributedString()
         var run = String()
+        var runHasNonASCII = false
 
         func flush() {
             guard !run.isEmpty else { return }
@@ -257,8 +313,44 @@ final class TTFXRenderer {
             if state.italic { attrs[.obliqueness] = 0.2 }
             if state.underline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if state.strikethrough { attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            out.append(NSAttributedString(string: run, attributes: attrs))
+
+            // Nothing in this run can be off the grid: skip the scan entirely.
+            if !runHasNonASCII, state.bold ? asciiAllOnGridBold : asciiAllOnGrid {
+                out.append(NSAttributedString(string: run, attributes: attrs))
+                run.removeAll(keepingCapacity: true)
+                runHasNonASCII = false
+                return
+            }
+
+            let piece = NSMutableAttributedString(string: run, attributes: attrs)
+            // Ranges are UTF-16, characters are grapheme clusters, so the offset
+            // is tracked rather than assumed. Adjacent characters needing the
+            // same correction are coalesced into one attribute run, which makes
+            // the all-katakana case a single addAttribute rather than one per
+            // cell.
+            var offset = 0, pendingStart = -1, pendingKern: CGFloat = 0
+            func closePending(_ end: Int) {
+                guard pendingStart >= 0 else { return }
+                piece.addAttribute(.kern, value: pendingKern,
+                                   range: NSRange(location: pendingStart,
+                                                  length: end - pendingStart))
+                pendingStart = -1
+            }
+            for ch in run {
+                let len = String(ch).utf16.count
+                if let k = cellKern(for: ch, bold: state.bold) {
+                    if pendingStart >= 0, k != pendingKern { closePending(offset) }
+                    if pendingStart < 0 { pendingStart = offset; pendingKern = k }
+                } else {
+                    closePending(offset)
+                }
+                offset += len
+            }
+            closePending(offset)
+
+            out.append(piece)
             run.removeAll(keepingCapacity: true)
+            runHasNonASCII = false
         }
 
         var i = line.startIndex
@@ -277,10 +369,11 @@ final class TTFXRenderer {
                 }
                 if j < line.endIndex, line[j] == "m" {
                     flush()
-                    apply(params: params, to: &state)
+                    Self.apply(params: params, to: &state)
                 }
                 i = j < line.endIndex ? line.index(after: j) : j
             } else {
+                if !ch.isASCII { runHasNonASCII = true }
                 run.append(ch)
                 i = line.index(after: i)
             }
