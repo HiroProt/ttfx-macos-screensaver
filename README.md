@@ -22,7 +22,17 @@ Download the zip from the
 unzip it, and double-click `ttfx.saver`. macOS opens Screen Saver settings
 and offers to install it; pick **ttfx** under "Other".
 
-Universal binary, macOS 11 and later, Apple Silicon and Intel.
+The download is signed and notarized, so there is no Gatekeeper warning and
+no `xattr` incantation. Universal binary, macOS 11 and later, Apple Silicon
+and Intel.
+
+Or with Homebrew:
+
+```sh
+brew tap HiroProt/tap
+brew trust --cask HiroProt/tap/ttfx-screensaver   # Homebrew requires this for third-party taps
+brew install --cask ttfx-screensaver
+```
 
 <details>
 <summary>Build it yourself instead</summary>
@@ -180,6 +190,14 @@ examples/                     starter logos and the terminal equivalent
 **Options… does nothing, or changes don't apply.** macOS caches the loaded
 bundle. Quit System Settings with ⌘Q, then
 `killall legacyScreenSaver`, and reopen.
+
+**A `legacyScreenSaver` process using CPU when nothing is on screen.** macOS
+runs third-party screen savers through an in-process plug-in host that
+[Apple's own DTS describes as an outdated model](https://developer.apple.com/forums/thread/797121),
+and dismissed instances are not reliably torn down — `stopAnimation` has not
+been called dependably since Sonoma. This saver defends against it by doing
+no work at all while its view is off screen, so a lingering host costs
+nothing. If you still see one busy, `killall legacyScreenSaver` is safe.
 
 **"ttfx.saver is damaged" or a Gatekeeper block** on a build you made
 yourself: `./build.sh` signs ad-hoc for the local machine, which is fine, but

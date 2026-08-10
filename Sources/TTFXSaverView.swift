@@ -396,7 +396,33 @@ public final class TTFXSaverView: ScreenSaverView {
         renderer.start(effect: pick, logo: logo, size: bounds.size, frameRate: fps)
     }
 
+    /// macOS keeps ticking screen saver instances that are no longer on
+    /// screen: the host process is documented by Apple's own DTS as using an
+    /// in-process plug-in model it no longer maintains, stopAnimation has not
+    /// been reliably called since Sonoma, and dismissed instances routinely
+    /// linger. Left alone, a parked instance animates a canvas nobody can see
+    /// and costs a real fraction of a core. Everything below is gated on this.
+    /// Deliberately only `isVisible`, not `occlusionState`: the latter is the
+    /// documented "am I visible" signal but reports false even for an
+    /// ordered-front window in a screen-saver-shaped host, and a false
+    /// negative here would freeze the animation rather than merely waste a
+    /// little CPU. Wrong in the cheap direction, on purpose.
+    private var isOnScreen: Bool {
+        guard let window else { return false }
+        return window.isVisible
+    }
+
     public override func animateOneFrame() {
+        guard isOnScreen else {
+            // Park: drop the engine session so a lingering instance costs
+            // nothing. It restarts from the top when the view is shown again,
+            // which is what a dismissed screen saver should do anyway.
+            if renderer.isRunning {
+                renderer.end()
+                holdTicks = 0
+            }
+            return
+        }
         if holdTicks > 0 {
             holdTicks -= 1
             if holdTicks == 0 { beginSession() }
