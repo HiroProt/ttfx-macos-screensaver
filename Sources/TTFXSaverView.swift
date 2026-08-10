@@ -443,13 +443,17 @@ public final class TTFXSaverView: ScreenSaverView {
     ///
     /// Neither direction is free. Wrongly deciding "on screen" is precisely the
     /// bug this check exists to fix: a dismissed instance renders where nobody
-    /// can see it and spends CPU and battery for as long as it lingers. What
-    /// makes it the one to prefer is that it is recoverable and measurable — it
-    /// shows up in Activity Monitor, it clears at the next lifecycle event, and
-    /// the screen saver still works. Wrongly deciding "off screen" leaves a
-    /// black screen with no way back and nothing to diagnose from. An
+    /// can see it and spends CPU and battery for as long as it lingers — which
+    /// can be the whole life of the host process. Nothing here reliably ends it:
+    /// stopAnimation was not called on any measured dismissal, and startAnimation
+    /// clears the parked state rather than the renderer, so it re-arms the
+    /// fail-open rather than closing it. What still makes this the direction to
+    /// prefer is that the screen saver keeps working and the cost stays
+    /// observable from outside — it shows up in Activity Monitor, against a
+    /// process that can be diagnosed and killed. Wrongly deciding "off screen"
+    /// leaves a black screen with no way back and nothing to diagnose from. An
     /// unfamiliar host — a future launch path, a renamed agent — has to fail
-    /// toward the recoverable one.
+    /// toward the observable one.
     ///
     /// The race this covers is a compositor surface that reaches WindowServer
     /// some ticks after the view's own window is already visible. It does not
