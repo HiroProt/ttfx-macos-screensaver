@@ -169,7 +169,7 @@ final class TTFXRenderer {
     private(set) var cols = 0
     private(set) var rows = 0
 
-    deinit { end(clearFrame: true) }
+    deinit { end() }
 
     func start(effect: String, logo: String, size: NSSize, frameRate: Int) {
         end(clearFrame: true)
@@ -370,6 +370,7 @@ public final class TTFXSaverView: ScreenSaverView {
     private var isParked = false
     private var lastOnScreenCheck = -Double.infinity
     private var lastOnScreenResult = false
+    private var hasSeenHostThisRun = false
 
     /// Keep checking for a resurfaced host without letting a stale host wake
     /// the CPU at animation frequency. One second is also the maximum delay
@@ -388,8 +389,26 @@ public final class TTFXSaverView: ScreenSaverView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { return nil }
 
+    /// Parking leaves the tick rate at `parkedInterval` and the cached verdict
+    /// at "off screen", and the host builds its timer from whatever the
+    /// property holds when animation starts. A restarted instance would
+    /// otherwise tick at 1 Hz against that stale verdict — a second of black
+    /// before anything moves — so undo the parked state up front.
+    ///
+    /// `hasSeenHostThisRun` resets here too: a view instance can outlive the
+    /// launch that created it and be started again through a different host,
+    /// so recognizing one host must not make this instance assume every later
+    /// launch is recognizable.
+    public override func startAnimation() {
+        isParked = false
+        hasSeenHostThisRun = false
+        lastOnScreenCheck = -Double.infinity
+        animationTimeInterval = frameInterval
+        super.startAnimation()
+    }
+
     public override func stopAnimation() {
-        park()
+        park(now: ProcessInfo.processInfo.systemUptime)
         super.stopAnimation()
     }
 
@@ -397,9 +416,7 @@ public final class TTFXSaverView: ScreenSaverView {
         // Re-read the knobs so configure-sheet changes land on this cycle.
         TTFXSettings.refresh()
         logo = TTFXSettings.loadLogo()
-        if TTFXSettings.frameRate != fps {
-            fps = TTFXSettings.frameRate
-        }
+        fps = TTFXSettings.frameRate
         animationTimeInterval = frameInterval
         holdUntil = nil
         let pool = TTFXSettings.enabledEffects
@@ -420,6 +437,26 @@ public final class TTFXSaverView: ScreenSaverView {
     /// ScreenSaverEngine alive. Embedded previews use ScreenSaverView's
     /// explicit preview state. The result is cached for a quarter second while
     /// active and a full second while parked.
+    ///
+    /// Until one of those signals has been seen during this animation run, an
+    /// unrecognized signal means "keep animating", not "park".
+    ///
+    /// Neither direction is free. Wrongly deciding "on screen" is precisely the
+    /// bug this check exists to fix: a dismissed instance renders where nobody
+    /// can see it and spends CPU and battery for as long as it lingers. What
+    /// makes it the one to prefer is that it is recoverable and measurable — it
+    /// shows up in Activity Monitor, it clears at the next lifecycle event, and
+    /// the screen saver still works. Wrongly deciding "off screen" leaves a
+    /// black screen with no way back and nothing to diagnose from. An
+    /// unfamiliar host — a future launch path, a renamed agent — has to fail
+    /// toward the recoverable one.
+    ///
+    /// The race this covers is a compositor surface that reaches WindowServer
+    /// some ticks after the view's own window is already visible. It does not
+    /// cover the view's window being absent or not yet ordered in: that returns
+    /// false above, before the fail-open applies, and parks. Parking is the
+    /// right answer there, because an invisible window is also exactly how
+    /// dismissal presents itself.
     private func isActuallyOnScreen(now: TimeInterval) -> Bool {
         let pollInterval = isParked ? Self.parkedInterval : 0.25
         if now - lastOnScreenCheck < pollInterval { return lastOnScreenResult }
@@ -429,7 +466,11 @@ public final class TTFXSaverView: ScreenSaverView {
             lastOnScreenResult = false
             return false
         }
-        lastOnScreenResult = isPreview || Self.hasWallpaperSurface || Self.hasLegacyController
+        // Cheapest signal first: the legacy check is a process lookup, the
+        // wallpaper one copies the whole on-screen window list.
+        let seenHost = isPreview || Self.hasLegacyController || Self.hasWallpaperSurface
+        if seenHost { hasSeenHostThisRun = true }
+        lastOnScreenResult = seenHost || !hasSeenHostThisRun
         return lastOnScreenResult
     }
 
@@ -456,19 +497,19 @@ public final class TTFXSaverView: ScreenSaverView {
         }
     }
 
-    private func park() {
+    private func park(now: TimeInterval) {
         renderer.end(clearFrame: true)
         holdUntil = nil
         isParked = true
         lastOnScreenResult = false
-        lastOnScreenCheck = ProcessInfo.processInfo.systemUptime
+        lastOnScreenCheck = now
         animationTimeInterval = Self.parkedInterval
     }
 
     public override func animateOneFrame() {
         let now = ProcessInfo.processInfo.systemUptime
         guard isActuallyOnScreen(now: now) else {
-            if !isParked || renderer.isRunning { park() }
+            if !isParked || renderer.isRunning { park(now: now) }
             return
         }
 

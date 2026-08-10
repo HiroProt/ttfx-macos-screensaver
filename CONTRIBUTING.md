@@ -34,6 +34,11 @@ useful checks are visual and behavioral:
 - Watch `legacyScreenSaver` in Activity Monitor after dismissing: it should
   drop to ~0% CPU, because the view stops working when off screen. This one
   regresses easily and costs users battery, so please check it.
+- Check the other direction too, from **every** launch path — idle timeout,
+  the System Settings preview, and `open -a ScreenSaverEngine`. The off-screen
+  check above is what decides whether to render at all, so getting it wrong in
+  this direction is a black screen with no way back, not a battery bug. It is
+  the more expensive failure and the easier one to miss.
 
 If you change the C API in `src/lib.rs`, update `Sources/ttfx.h` in the same
 commit — nothing checks that they agree.
@@ -51,6 +56,14 @@ Two things look wrong and aren't:
   is why the WallpaperAgent fallback is required. Embedded previews use
   `ScreenSaverView.isPreview`; a parked instance checks once per second and
   does no rendering work.
+
+  Until one of those signals has been seen during an animation run, an
+  unrecognized one means "keep animating" rather than "park", so an unfamiliar
+  host fails toward wasted CPU instead of a black screen. Both are wrong; only
+  one is recoverable. Note also that the WallpaperAgent signal is global rather
+  than per-view, so a video desktop wallpaper or a second display genuinely
+  playing can hold it true — which lands back on the old behavior, never
+  past it.
 - The engine session is recreated per effect cycle rather than kept alive.
   That's what lets settings changes apply without a restart.
 
