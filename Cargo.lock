@@ -213,8 +213,8 @@ dependencies = [
 
 [[package]]
 name = "ttfx"
-version = "0.1.2"
-source = "git+https://github.com/omacom-io/ttfx?rev=01d48abe7aea10022848f14915ac3aac3bf7c920#01d48abe7aea10022848f14915ac3aac3bf7c920"
+version = "0.2.1"
+source = "git+https://github.com/omacom-io/ttfx?rev=22ca4aaf5e720902350db58a64ae2e818b5a2233#22ca4aaf5e720902350db58a64ae2e818b5a2233"
 dependencies = [
  "clap",
  "clap_complete",

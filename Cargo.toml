@@ -15,10 +15,16 @@ crate-type = ["staticlib"]
 [dependencies]
 # Upstream, unmodified and pinned. Everything this shim needs is already
 # public API, so there is no fork to keep in sync.
-# Pinned by commit rather than tag: this is upstream's v0.1.2, but a tag can
-# be moved and a commit cannot, so `cargo update` can never silently follow a
-# retagged v0.1.2. Cargo permits only one of tag/rev, hence the comment.
-ttfx = { git = "https://github.com/omacom-io/ttfx", rev = "01d48abe7aea10022848f14915ac3aac3bf7c920" }
+# Pinned by commit rather than tag: a tag can be moved and a commit cannot, so
+# `cargo update` can never silently follow a retagged release. Cargo permits
+# only one of tag/rev, hence the comment.
+#
+# This is upstream main past v0.2.1, taken rather than the tag for the
+# post-release dispatch and render work. Measured against the previous pin at
+# this screensaver's canvas size (110x32, all 37 effects, fixed seed): 2253 ms
+# -> 287 ms, 7.8x, with identical frame counts everywhere, so the animations
+# are unchanged and only the throughput moved.
+ttfx = { git = "https://github.com/omacom-io/ttfx", rev = "22ca4aaf5e720902350db58a64ae2e818b5a2233" }
 clap = { version = "4", features = ["derive"] }
 
 [profile.release]

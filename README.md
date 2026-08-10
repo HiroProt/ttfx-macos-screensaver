@@ -171,7 +171,7 @@ side interprets the ANSI color runs and draws the cell grid with CoreText.
 No subprocess — which also sidesteps the sandbox that makes spawning
 binaries unreliable inside macOS's screensaver host.
 
-ttfx is consumed as an unmodified dependency pinned to a release tag. This is
+ttfx is consumed as an unmodified dependency pinned to an exact commit. This is
 not a fork and vendors no upstream code: everything the bridge needs is
 already ttfx's public API, so upstream stays upstream.
 
