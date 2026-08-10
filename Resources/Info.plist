@@ -15,12 +15,12 @@
 	<key>CFBundlePackageType</key>
 	<string>BNDL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.1.2</string>
+	<string>0.1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
-	<key>NSPrincipalClass</key>
-	<string>TTFXSaverView</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>MIT. Effects are a port of TerminalTextEffects by ChrisBuilds.</string>
+	<key>NSPrincipalClass</key>
+	<string>TTFXSaverView</string>
 </dict>
 </plist>

@@ -17,7 +17,7 @@ omacom-io, Basecamp, or ChrisBuilds.
 
 ## Install
 
-Download **ttfx-screensaver.zip** from the
+Download the zip from the
 [latest release](https://github.com/HiroProt/ttfx-macos-screensaver/releases/latest),
 unzip it, and double-click `ttfx.saver`. macOS opens Screen Saver settings
 and offers to install it; pick **ttfx** under "Other".
