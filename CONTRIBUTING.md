@@ -163,29 +163,43 @@ release, and gating rendering on it is a narrowing — the direction that fails
 to a black screen. Validate across every launch path and a second display
 before trusting it.
 
-## The picker thumbnail does not work on macOS 26 (Tahoe), and that's not a bug here
+## The picker thumbnail shows the wrong image on macOS 26, and it is unsolved
 
 `Resources/thumbnail.png` and `thumbnail@2x.png` follow Apple's convention
-for a screen saver's tile in the picker. On Tahoe the tile shows a generic
-blue swirl instead, and no amount of fiddling changes it. Before you try:
+for a screen saver's tile in the picker. On macOS 26 the tile shows a generic
+blue swirl instead. Tracked in
+[#2](https://github.com/HiroProt/ttfx-macos-screensaver/issues/2).
+
+This section used to say it was a platform limitation and not worth chasing.
+That was wrong: `Flying Toasters.saver` displays its own thumbnail correctly on
+the same machine and the same OS, so the picker can do it and something about
+this bundle is being rejected or not found. If you pick this up, these are
+already ruled out:
 
 - The files are installed in the right place at Apple's exact dimensions
   (90×58 and 180×116), in the same format as Apple's own
   (`Random.saver`): 8-bit RGBA PNG, non-interlaced, sRGB.
-- It is not a quarantine problem. Clearing `com.apple.quarantine` off the
-  installed bundle changes nothing.
-- It is not a stale cache. Restarting `WallpaperLegacy`, `legacyScreenSaver`
-  and System Settings, and touching the bundle, change nothing.
+- Not quarantine. Clearing `com.apple.quarantine` off the installed bundle
+  changes nothing.
+- Not a stale cache. `WallpaperLegacyExtension` references one
+  (`com.apple.wallpaper.legacy.thumbnails`) and logs `Could not load thumbnail
+  for legacy screen saver`, but no such cache exists under `~/Library`, and
+  restarting `WallpaperAgent`, `legacyScreenSaver` and System Settings changes
+  nothing.
+- Not the file format. Flying Toasters ships `thumbnail.tiff` where this ships
+  `.png`, which looked like the answer; shipping a multi-representation
+  `thumbnail.tiff` alongside changed nothing. The extension binary contains no
+  literal filename string, which suggests `NSBundle` image lookup — that
+  resolves either extension.
 - The blue swirl is Apple's stock legacy art — byte for byte what ships as
-  `Random.saver`'s own `thumbnail.png`. `WallpaperLegacyExtension` contains
-  a `Default` asset and log strings for failing to load a legacy thumbnail,
-  so the fallback is deliberate.
+  `Random.saver`'s own `thumbnail.png`, so the fallback is deliberate.
 
-Apple's logging for that path is suppressed, so "ignored" and "rejected"
-can't be told apart from outside. The files stay in the bundle because they
-cost 15 KB, they are correct by the documented convention, and older macOS
-releases used them — but do not expect them to do anything on Tahoe, and
-please don't spend an evening on it like I did.
+The untested lead is bundle metadata rather than artwork: Flying Toasters is
+Xcode-built and its `Info.plist` carries `LSMinimumSystemVersion`,
+`CFBundleSupportedPlatforms`, `CFBundleSignature` and the `DT*` toolchain keys.
+`build.sh` produces none of them. Apple's logging for this path is suppressed,
+so "ignored" and "rejected" cannot be told apart from outside — which is why
+the next step is to change one thing at a time and look at the picker.
 
 ## Commits and PRs
 
