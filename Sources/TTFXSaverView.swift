@@ -107,18 +107,31 @@ enum TTFXSettings {
         defaults?.synchronize()
     }
 
+    /// Set once a LogoPath read has actually failed. The screensaver host's
+    /// sandbox does not loosen mid-process, so retrying a path it already
+    /// refused only sprays `deny file-read-data` into the system log on every
+    /// cycle — noise that reads like a fault during unrelated triage.
+    private static var logoPathUnreachable = false
+
+    /// Re-arm the LogoPath read; the picked file changed, so a previous
+    /// failure says nothing about the new one.
+    static func rearmLogoPath() {
+        logoPathUnreachable = false
+    }
+
     /// Precedence: fresh read of LogoPath (picks up edits when the
-    /// screensaver host can reach the file) → LogoText, the content snapshot
-    /// the configure sheet stores at pick time (immune to the host's
-    /// sandbox) → the bundled logo.
+    /// screensaver host can reach the file, and it is only re-read while it
+    /// stays reachable) → LogoText, the content snapshot the configure sheet
+    /// stores at pick time (immune to the host's sandbox) → the bundled logo.
     static func loadLogo() -> String {
-        if let path = defaults?.string(forKey: "LogoPath") {
+        if !logoPathUnreachable, let path = defaults?.string(forKey: "LogoPath") {
             let expanded = (path as NSString).expandingTildeInPath
             if let text = try? String(contentsOfFile: expanded, encoding: .utf8),
                !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             {
                 return text
             }
+            logoPathUnreachable = true
         }
         if let text = defaults?.string(forKey: "LogoText"),
            !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -1043,6 +1056,7 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
             self.defaults?.set(url.path, forKey: "LogoPath")
             self.defaults?.set(text, forKey: "LogoText")
             self.defaults?.synchronize()
+            TTFXSettings.rearmLogoPath()
             self.logoValue.stringValue = url.path
             self.restartPreviewLogo()
         }
@@ -1052,6 +1066,7 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
         defaults?.removeObject(forKey: "LogoPath")
         defaults?.removeObject(forKey: "LogoText")
         defaults?.synchronize()
+        TTFXSettings.rearmLogoPath()
         logoValue.stringValue = "Built-in logo"
         restartPreviewLogo()
     }
