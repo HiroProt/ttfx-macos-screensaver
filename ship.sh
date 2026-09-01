@@ -132,9 +132,12 @@ $changes
 ## Install
 
 \`\`\`sh
-brew install --cask ttfx-screensaver     # new
-brew upgrade --cask ttfx-screensaver     # existing
+brew tap HiroProt/tap
+brew trust --cask HiroProt/tap/ttfx-screensaver   # Homebrew requires this for third-party taps
+brew install --cask ttfx-screensaver
 \`\`\`
+
+Already installed? \`brew upgrade --cask ttfx-screensaver\`.
 
 Or download the zip below, unzip, and double-click \`ttfx.saver\`. Signed,
 notarized and stapled, so there's no Gatekeeper prompt. Universal (Apple
