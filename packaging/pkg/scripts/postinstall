@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs as root after the payload lands. Both jobs here are about what an
+# Runs as root after the payload lands. Every job here is about what an
 # *earlier* install left behind, not about this one.
 #
 #   $2  where this install put the bundle
@@ -18,8 +18,11 @@ installed="$2/ttfx.saver"
 #    Narrow on purpose: only a directory named ttfx.saver, only when its
 #    Info.plist says it is ours, and never the one just installed.
 user=$(stat -f %Su /dev/console 2>/dev/null)
+home=""
 if [ -n "$user" ] && [ "$user" != "root" ]; then
     home=$(dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | sed 's/^NFSHomeDirectory: *//')
+fi
+if [ -n "$home" ]; then
     stale="$home/Library/Screen Savers/ttfx.saver"
     if [ -n "$home" ] && [ -d "$stale" ] && [ "$stale" != "$installed" ]; then
         id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
@@ -30,11 +33,48 @@ if [ -n "$user" ] && [ "$user" != "root" ]; then
     fi
 fi
 
-# 2. The screen saver host caches the bundle it loaded. Without this, an
-#    upgrade keeps running the old code until the next logout — the same
-#    reason build.sh --install does it.
+# 2. Keep the screen saver selected.
+#
+#    macOS records the chosen screen saver as an absolute path, separately for
+#    every space and every display — 27 entries on one ordinary Mac. Moving the
+#    bundle invalidates all of them at once and the screen saver quietly
+#    reverts to the system default. Re-picking it in System Settings repairs
+#    only the space and display in front of you, so the others keep reverting
+#    afterwards, which is a worse bug than the obvious one.
+#
+#    Run in the installing user's own context: it is their preference store,
+#    and writing it as root would leave a root-owned file in their home.
+if [ -n "$user" ] && [ "$user" != "root" ] && [ -n "$home" ]; then
+    store="$home/Library/Application Support/com.apple.wallpaper/Store/Index.plist"
+    uid=$(id -u "$user" 2>/dev/null)
+    script="$(dirname "$0")/repoint-selection.js"
+    if [ -f "$store" ] && [ -n "$uid" ] && [ -f "$script" ]; then
+        # Two ways in, because this is the one step here that cannot be tested
+        # from a shell without root: launchctl asuser is the documented way to
+        # reach a logged-in user's context from an installer, and sudo -u is
+        # enough for what this actually does, which is read and write one file.
+        out=$(launchctl asuser "$uid" sudo -u "$user" \
+                  /usr/bin/osascript -l JavaScript "$script" "$store" "$installed" 2>&1) \
+          || out=$(sudo -u "$user" \
+                  /usr/bin/osascript -l JavaScript "$script" "$store" "$installed" 2>&1) \
+          || out="could not run $script"
+        # Say so in install.log either way. A migration that silently does not
+        # run looks exactly like one that had nothing to do, and the difference
+        # is a screen saver that quietly reverts to the system default.
+        /usr/bin/logger -t ttfx-screensaver "selection: $out"
+        echo "ttfx: selection: $out"
+    fi
+fi
+
+# 3. Both hosts cache the bundle they loaded, and WallpaperAgent caches the
+#    selection it read. Restarting them is what makes the two steps above take
+#    effect now rather than at the next login.
+#
+#    The order matters: the store is written first and the agent restarted
+#    second. Measured — the edit survives a restart in that order.
 /usr/bin/killall legacyScreenSaver 2>/dev/null
 /usr/bin/killall ScreenSaverEngine 2>/dev/null
+/usr/bin/killall WallpaperAgent 2>/dev/null
 
 # Neither step above is allowed to fail the install: both are cleanup of a
 # previous state, and the payload is already correctly in place.
