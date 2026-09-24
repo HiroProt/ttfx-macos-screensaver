@@ -14,10 +14,15 @@
 #   ./ship.sh              # ship the version in Resources/Info.plist
 #   ./ship.sh --dry-run    # do everything except publish and push
 #
-# Credentials come from 1Password so nothing secret lives on disk or in
-# shell history. Override the item with NOTARY_OP_ITEM if you move it.
-# Requires: op (signed in), gh (authenticated), and both Developer ID
-# certificates — Application (signs the bundle) and Installer (signs the pkg).
+# Notarization credentials come from a notarytool keychain profile, created
+# once (see the preflight message for the exact command). They are deliberately
+# not passed on a command line: notarytool takes --password as an argument, and
+# an argument is visible in `ps` to every process on the machine for as long as
+# the submission runs. This script used to do that.
+#
+# Requires: gh (authenticated), a notarytool keychain profile, and both
+# Developer ID certificates — Application (signs the bundle) and Installer
+# (signs the pkg). 1Password is only needed for the one-time profile setup.
 set -e
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -29,6 +34,7 @@ DRY_RUN=false
 # Plain ASCII on purpose: op secret references reject characters like an
 # em-dash in the item title.
 NOTARY_OP_ITEM=${NOTARY_OP_ITEM:-"op://23made/Apple Notarization 23made"}
+NOTARY_PROFILE=${NOTARY_PROFILE:-ttfx-notary}
 TAP_DIR=${TAP_DIR:-"$HOME/Projects/homebrew-tap"}
 CASK=$TAP_DIR/Casks/ttfx-screensaver.rb
 
@@ -39,9 +45,7 @@ die() { printf '\033[31merror: %s\033[0m\n' "$1" >&2; exit 1; }
 # Everything that can be checked before doing irreversible work, is.
 
 say "Preflight"
-command -v op >/dev/null || die "1Password CLI (op) not installed"
 command -v gh >/dev/null || die "GitHub CLI (gh) not installed"
-op account list >/dev/null 2>&1 || die "op is not signed in — run: eval \$(op signin)"
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated — run: gh auth login"
 security find-identity -v -p codesigning | grep -q "Developer ID Application" \
   || die "no Developer ID Application identity in the keychain"
@@ -73,16 +77,27 @@ echo "  tag:      $tag"
 echo "  dry run:  $DRY_RUN"
 
 # --- credentials -----------------------------------------------------------
-# Read into the environment only; never echoed, never written to disk.
+# Nothing secret passes through this script. The profile lives in the keychain
+# and notarytool reads it by name.
 
-say "Reading notarization credentials from 1Password"
-NOTARY_APPLE_ID=$(op read "$NOTARY_OP_ITEM/username") || die "cannot read Apple ID"
-NOTARY_PASSWORD=$(op read "$NOTARY_OP_ITEM/password") || die "cannot read app-specific password"
-NOTARY_TEAM_ID=$(op read "$NOTARY_OP_ITEM/Team ID") || die "cannot read Team ID"
-export NOTARY_APPLE_ID NOTARY_PASSWORD NOTARY_TEAM_ID
-echo "  apple id: $NOTARY_APPLE_ID"
-echo "  team id:  $NOTARY_TEAM_ID"
-echo "  password: (read from 1Password, not shown)"
+say "Checking the notarization credentials"
+# Cheapest call that actually proves the profile works. Worth the couple of
+# seconds: the alternative is finding out after a full build and an upload
+# that the credentials were wrong.
+if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" --limit 1 >/dev/null 2>&1; then
+  die "no working notarytool keychain profile '$NOTARY_PROFILE'.
+
+  Create it once — the password goes in on stdin, so unlike --password it
+  never appears in the process table:
+
+    op read \"$NOTARY_OP_ITEM/password\" | xcrun notarytool store-credentials $NOTARY_PROFILE \\
+      --apple-id \"\$(op read \"$NOTARY_OP_ITEM/username\")\" \\
+      --team-id \"\$(op read \"$NOTARY_OP_ITEM/Team ID\")\"
+
+  Override the profile name with NOTARY_PROFILE if you use another."
+fi
+export NOTARY_PROFILE
+echo "  keychain profile: $NOTARY_PROFILE (validated)"
 
 # --- build, sign, notarize -------------------------------------------------
 

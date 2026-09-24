@@ -24,13 +24,17 @@
 #
 # Notarization credentials, in the order this script looks for them:
 #
-#   1. An Apple ID + app-specific password (no issuer UUID needed):
+#   1. A stored keychain profile — what ship.sh uses, and what you want:
+#        xcrun notarytool store-credentials ttfx-notary --apple-id ... --team-id ...
+#        NOTARY_PROFILE=ttfx-notary ./release.sh --notarize
+#      Omit --password there and it prompts, reading stdin, so the secret can
+#      be piped in and never reaches a command line.
+#   2. An Apple ID + app-specific password:
 #        NOTARY_APPLE_ID=you@example.com NOTARY_TEAM_ID=TEAMID \
 #        NOTARY_PASSWORD=xxxx-xxxx-xxxx-xxxx ./release.sh --notarize
-#      ship.sh pulls exactly these out of 1Password for you.
-#   2. A stored keychain profile:
-#        xcrun notarytool store-credentials ttfx-notary ...
-#        NOTARY_PROFILE=ttfx-notary ./release.sh --notarize
+#      Note what this costs: notarytool takes the password as an argument, and
+#      arguments are visible in `ps` to every process on the machine for as
+#      long as the submission runs. Prefer 1.
 #   3. An App Store Connect API key:
 #        NOTARY_KEY=~/path/AuthKey_XXXX.p8 NOTARY_KEY_ID=XXXX \
 #        NOTARY_ISSUER=<issuer-uuid> ./release.sh --notarize
@@ -97,11 +101,14 @@ if [ "$1" = "--notarize" ]; then
   /usr/bin/ditto -c -k --keepParent "$bundle" "$submit"
 
   echo "==> submitting to Apple (this usually takes a few minutes)"
-  if [ -n "$NOTARY_APPLE_ID" ] && [ -n "$NOTARY_PASSWORD" ] && [ -n "$NOTARY_TEAM_ID" ]; then
+  # Profile first: it is the only one of these that keeps the secret off the
+  # command line, so a setup that has both should get the safe one.
+  if [ -n "$NOTARY_PROFILE" ]; then
+    set -- --keychain-profile "$NOTARY_PROFILE"
+  elif [ -n "$NOTARY_APPLE_ID" ] && [ -n "$NOTARY_PASSWORD" ] && [ -n "$NOTARY_TEAM_ID" ]; then
+    echo "==> warning: passing the password as an argument; it is visible in ps" >&2
     set -- --apple-id "$NOTARY_APPLE_ID" --password "$NOTARY_PASSWORD" \
            --team-id "$NOTARY_TEAM_ID"
-  elif [ -n "$NOTARY_PROFILE" ]; then
-    set -- --keychain-profile "$NOTARY_PROFILE"
   elif [ -n "$NOTARY_KEY" ] && [ -n "$NOTARY_KEY_ID" ] && [ -n "$NOTARY_ISSUER" ]; then
     set -- --key "$NOTARY_KEY" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER"
   else
