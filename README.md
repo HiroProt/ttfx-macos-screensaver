@@ -3,10 +3,22 @@
 Terminal text effects as a macOS screensaver. Your ASCII logo, 37 animated
 effects, a random one each cycle.
 
-![demo](docs/demo.gif)
+![ttfx running on a desk](docs/desk.gif)
 
-*That placeholder is just a text file. Point it at your own and it renders the
-same way — see [Use your own logo](#use-your-own-logo).*
+*An ordinary evening, at the moment the screensaver takes over. The
+[longer clip](docs/desk.mp4) keeps going through more of the effects.*
+
+```sh
+brew tap HiroProt/tap
+brew trust --cask HiroProt/tap/ttfx-screensaver   # Homebrew requires this for third-party taps
+brew install --cask ttfx-screensaver
+```
+
+Or download the `.pkg` from the
+[latest release](https://github.com/HiroProt/ttfx-macos-screensaver/releases/latest)
+and double-click it — no admin password needed if you pick "for me only". Then
+open Screen Saver settings and choose **ttfx**. More under
+[Install](#install).
 
 Built on **[ttfx](https://github.com/omacom-io/ttfx)** by 37signals/omacom-io —
 itself a byte-exact Rust port of
@@ -112,6 +124,11 @@ build.
 
 ## Use your own logo
 
+![demo](docs/demo.gif)
+
+*That placeholder is just a text file. Point it at your own and it renders the
+same way.*
+
 Open **Options…** in Screen Saver settings, click **Choose File…**, and pick
 any plain-text file. That's it — it takes effect on the next cycle.
 
@@ -190,12 +207,9 @@ Everything is behind **Options…**, and applies at the next effect cycle:
   session over your real logo, scaled down.
 - **Logo** — the file picker described above, or the built-in logo.
 - **Art size** — the canvas targets ~110 columns at any resolution; the
-  slider moves that between 200 (small art) and 50 (huge). Small art on a
-  tall display is the expensive corner: the grid targets columns, so rows
-  scale with screen height, and past roughly 9,000 cells the engine's memory
-  stops being handed back between effects — bounded, but the bound is
-  hundreds of megabytes rather than tens. Measured in
-  [docs/measurements.md](docs/measurements.md).
+  slider moves that between 200 (small art) and 50 (huge). Very small art on
+  a very tall display costs more memory than you would expect; the numbers
+  are in [docs/measurements.md](docs/measurements.md).
 - **Hold finished text** — how long the completed logo sits before the next
   effect.
 - **Animation** — 30 / 60 / 120 fps. Each tick advances the effect exactly
