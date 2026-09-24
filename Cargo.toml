@@ -19,12 +19,18 @@ crate-type = ["staticlib"]
 # `cargo update` can never silently follow a retagged release. Cargo permits
 # only one of tag/rev, hence the comment.
 #
-# This is upstream main past v0.2.1, taken rather than the tag for the
-# post-release dispatch and render work. Measured against the previous pin at
-# this screensaver's canvas size (110x32, all 37 effects, fixed seed): 2253 ms
-# -> 287 ms, 7.8x, with identical frame counts everywhere, so the animations
-# are unchanged and only the throughput moved.
-ttfx = { git = "https://github.com/omacom-io/ttfx", rev = "22ca4aaf5e720902350db58a64ae2e818b5a2233" }
+# v0.3.3. Measured against the previous pin (v0.2.1 plus post-release work) at
+# this screensaver's canvas size, all 37 effects, fixed seed, three runs each:
+# 242.2 ms -> 214.0 ms, 11.6% faster, from upstream's gradient and animation
+# playback work. At 220x74 it is 1444 ms -> 1260 ms. Frame counts are identical
+# at both sizes (19,357 and 31,337), so the animations are unchanged and only
+# the throughput moved, which is the check that makes the timing comparable.
+#
+# The pin before this one was itself taken for throughput, at 7.8x. Upstream's
+# CLI-side work in this range — resize restart, SIGTERM handling, exiting when
+# the terminal goes away — is not reachable from this shim, which drives the
+# engine directly and never has a terminal.
+ttfx = { git = "https://github.com/omacom-io/ttfx", rev = "54d21f046f22512b113056a1964077d7b7bf04cc" }
 clap = { version = "4", features = ["derive"] }
 
 [profile.release]
