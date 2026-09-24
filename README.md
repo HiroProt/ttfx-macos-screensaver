@@ -190,7 +190,12 @@ Everything is behind **Options…**, and applies at the next effect cycle:
   session over your real logo, scaled down.
 - **Logo** — the file picker described above, or the built-in logo.
 - **Art size** — the canvas targets ~110 columns at any resolution; the
-  slider moves that between 200 (small art) and 50 (huge).
+  slider moves that between 200 (small art) and 50 (huge). Small art on a
+  tall display is the expensive corner: the grid targets columns, so rows
+  scale with screen height, and past roughly 9,000 cells the engine's memory
+  stops being handed back between effects — bounded, but the bound is
+  hundreds of megabytes rather than tens. Measured in
+  [docs/measurements.md](docs/measurements.md).
 - **Hold finished text** — how long the completed logo sits before the next
   effect.
 - **Animation** — 30 / 60 / 120 fps. Each tick advances the effect exactly
@@ -266,13 +271,28 @@ runs third-party screen savers through an in-process plug-in host that
 and dismissed instances are not reliably torn down — `stopAnimation` has not
 been called dependably since Sonoma. This saver defends against it by doing
 no work at all while its view is off screen, so a lingering host costs
-nothing. If you still see one busy, `killall legacyScreenSaver` is safe.
+nothing: a parked tick is measured at 1/3,300 the cost of a running one, once
+a second. If you still see one busy, `killall legacyScreenSaver` is safe.
 
-**"ttfx.saver is damaged" or a Gatekeeper block** on a build you made
-yourself: `./build.sh` signs ad-hoc for the local machine, which is fine, but
-a bundle that has been zipped and moved between Macs needs
-`xattr -dr com.apple.quarantine ~/Library/Screen\ Savers/ttfx.saver`.
-Release downloads are notarized and don't need this.
+**System Settings sitting at a few percent CPU** after you closed the Options
+sheet: fixed in 0.1.6. The sheet's live preview is a real 60 Hz engine
+session, and before that version only the Done button stopped it — closing
+System Settings with the sheet still up left it running at ~79% of a core for
+as long as the app stayed open. Quitting System Settings ends it.
+
+**"Apple could not verify 'ttfx.saver' is free of malware"**, or "ttfx.saver
+is damaged", with only **Move to Trash** and **Done** to choose from. The
+bundle is quarantined and Gatekeeper's library-load gate refused it. Clear
+the flag:
+
+```sh
+xattr -dr com.apple.quarantine ~/Library/Screen\ Savers/ttfx.saver
+```
+
+Then install the `.pkg` rather than the zip, which is the version of this
+that cannot happen — see [Install](#install). A bundle from `./build.sh` is
+ad-hoc signed for the machine that built it, and needs the same line after
+being zipped and moved to another Mac.
 
 ## Uninstall
 

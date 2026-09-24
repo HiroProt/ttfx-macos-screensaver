@@ -696,6 +696,11 @@ final class TTFXPreviewView: NSView {
     private var timer: Timer?
     private var holdTicks = 0
     private let fps = 60
+    /// Set once the sheet has actually been on screen. Until then an invisible
+    /// window means "not presented yet", not "closed": `configureSheet` calls
+    /// `reload()` — and so `start()` — before System Settings presents the
+    /// window, so the first ticks legitimately run against a hidden sheet.
+    private var hasBeenVisible = false
 
     var effectName: String? {
         didSet {
@@ -710,6 +715,7 @@ final class TTFXPreviewView: NSView {
 
     func start() {
         stop()
+        hasBeenVisible = false
         restart()
         let timer = Timer(timeInterval: 1.0 / Double(fps), repeats: true) { [weak self] _ in
             self?.tick()
@@ -735,6 +741,23 @@ final class TTFXPreviewView: NSView {
     }
 
     private func tick() {
+        // The sheet can go away without `dismiss(_:)` ever running: System
+        // Settings closed with the sheet up, the pane switched, the host
+        // ending the sheet itself. Nothing then invalidates this timer, and a
+        // 60 Hz engine session keeps running inside System Settings for as
+        // long as the app stays open — measured at 79% of a core, indefinitely,
+        // which is more than it costs while the sheet is showing, because a
+        // hidden window does not coalesce the drawing away.
+        //
+        // Same principle as the saver's own visibility gate: trust the window,
+        // not the host's politeness. Failing open until the sheet has been seen
+        // on screen keeps that from stopping a preview that has not started.
+        if window?.isVisible == true {
+            hasBeenVisible = true
+        } else if hasBeenVisible {
+            stop()
+            return
+        }
         if holdTicks > 0 {
             holdTicks -= 1
             if holdTicks == 0 { restart() }
