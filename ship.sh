@@ -84,7 +84,11 @@ say "Checking the notarization credentials"
 # Cheapest call that actually proves the profile works. Worth the couple of
 # seconds: the alternative is finding out after a full build and an upload
 # that the credentials were wrong.
-if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" --limit 1 >/dev/null 2>&1; then
+#
+# No --limit here: notarytool's `history` does not take one, and asking for it
+# fails the check for the wrong reason — which is exactly what this did on its
+# first real use, reporting a missing profile against a profile that worked.
+if ! xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" >/dev/null 2>&1; then
   die "no working notarytool keychain profile '$NOTARY_PROFILE'.
 
   Create it once — the password goes in on stdin, so unlike --password it
