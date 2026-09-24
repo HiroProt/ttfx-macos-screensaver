@@ -204,6 +204,9 @@ Everything is behind **Options…**, and applies at the next effect cycle:
   is 60, which is also the default here. Your display's refresh rate is the
   ceiling.
 - **ANSI art color** — as above.
+- **Version and project link**, bottom left. A screen saver has no About box
+  and no window of its own, so this is the only place it can tell you which
+  build is installed.
 
 Those knobs are stored as a ByHost preference domain named `gg.ka.ttfx`, but
 **not the one `defaults` writes by default.** The screen saver runs inside a
