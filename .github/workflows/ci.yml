@@ -46,6 +46,24 @@ jobs:
           [ -x packaging/pkg/scripts/postinstall ] \
             || { echo "postinstall is not executable"; exit 1; }
           cc -o /tmp/gatekeeper-probe packaging/gatekeeper-probe.c
+      - name: Lint the shell scripts
+        run: |
+          set -e
+          # `sh -n` is not enough. ship.sh once died mid-release, after both
+          # artifacts were notarized and before the tag, because a quotation
+          # mark inside a double-quoted string silently ended it and handed
+          # the rest of the paragraph to the shell as commands. That is valid
+          # syntax meaning something else, so the syntax check passed it both
+          # before and after the bug. shellcheck names it exactly — SC1078 on
+          # the assignment, SC1079 on the offending quote — and is the only
+          # thing in this pipeline that would have caught it.
+          #
+          # Homebrew rather than a third-party action, to keep the supply
+          # chain of a workflow that deliberately has no write permissions as
+          # short as it already is.
+          command -v shellcheck >/dev/null || brew install shellcheck
+          shellcheck --version | head -2
+          shellcheck -s sh build.sh release.sh ship.sh packaging/pkg/scripts/postinstall
       - uses: actions/upload-artifact@v4
         with:
           name: ttfx.saver-unsigned
