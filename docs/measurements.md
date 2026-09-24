@@ -84,4 +84,6 @@ End to end through the real view it is bounded, but the bound moves with the can
 | 1728x1117 (16:10 laptop) | default | 54.5 – 90.4 MB, drift −17.4 MB |
 | 2880x5120 (5K in portrait) | default | 254.5 – 415.8 MB, drift −58.1 MB |
 
-Columns is the knob that reaches this deliberately: the grid targets a column count, so resolution barely moves it, but a tall display or a high **Art size** setting does. The shipped default on a normal wide display sits below the threshold. Worth raising with [upstream ttfx](https://github.com/omacom-io/ttfx) rather than working around here, since the allocation belongs to the engine.
+Columns is the knob that reaches this deliberately: the grid targets a column count, so resolution barely moves it, but a tall display or a high **Art size** setting does. The shipped default on a normal wide display sits below the threshold.
+
+Raised upstream as [omacom/ttfx#34](https://github.com/omacom/ttfx/issues/34), with a repro that uses only ttfx's own API — no screen saver, no FFI shim, no frames produced, just `EngineCtx::new` plus `Effect::build` and a drop. It reproduces at +6.16 MB per cycle at 220x74 and flat at 110x37, which confirms the allocation belongs to the engine rather than to anything this project does with it. The same numbers appear at both the old pin and v0.3.3, so it is not a recent regression.
