@@ -924,6 +924,24 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
         let done = NSButton(title: "Done", target: self, action: #selector(dismiss))
         done.keyEquivalent = "\r"
 
+        // A screen saver has no About box, no menu bar and no window of its
+        // own, so this sheet is the only place it can say which build is
+        // installed. Not knowing that turned the 0.1.5 Gatekeeper reports into
+        // guesswork — the dialog names the bundle and nothing else.
+        //
+        // Read from the loaded bundle rather than hardcoded, so it cannot
+        // drift from the version that release.sh actually shipped.
+        let version = Bundle(for: TTFXConfigController.self)
+            .object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"
+        let stamp = caption("ttfx \(version)")
+
+        let link = NSButton(title: "github.com/HiroProt/ttfx-macos-screensaver",
+                            target: self, action: #selector(openProjectPage))
+        link.isBordered = false
+        link.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        link.contentTintColor = .linkColor
+        link.toolTip = "Releases, source and issue tracker"
+
         let rows = NSStackView(views: [
             top,
             row("Logo:", [logoValue, choose, builtin]),
@@ -931,7 +949,7 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
             row("Hold finished text:", [holdSlider, holdHint]),
             row("Animation:", [ratePopup, NSView()]),
             row("ANSI art color:", [colorPopup, NSView()]),
-            row("", [NSView(), done]),
+            row("", [stamp, link, NSView(), done]),
         ])
         rows.orientation = .vertical
         rows.alignment = .leading
@@ -1130,6 +1148,15 @@ final class TTFXConfigController: NSObject, NSTableViewDataSource, NSTableViewDe
         }
         defaults?.synchronize()
         restartPreviewLogo()
+    }
+
+    /// The sheet runs inside System Settings, which is sandboxed. Opening a URL
+    /// is a user-initiated LaunchServices request rather than a direct network
+    /// or file operation, so it is one of the few outward things this sheet can
+    /// still do from in there.
+    @objc private func openProjectPage() {
+        guard let url = URL(string: "https://github.com/HiroProt/ttfx-macos-screensaver") else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func dismiss(_ sender: Any?) {
