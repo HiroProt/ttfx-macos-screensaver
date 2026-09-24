@@ -162,14 +162,28 @@ say "Publishing the GitHub release"
 prev=$(git tag --sort=-creatordate | head -1)
 if [ -n "$prev" ]; then
   changes=$(git log --no-merges --pretty='- %s' "$prev..HEAD")
-  compare="
+  compare=$(cat <<EOF
 
-**Full changelog**: https://github.com/HiroProt/ttfx-macos-screensaver/compare/$prev...$tag"
+
+**Full changelog**: https://github.com/HiroProt/ttfx-macos-screensaver/compare/$prev...$tag
+EOF
+)
 else
   changes=$(git log --no-merges --pretty='- %s')
   compare=""
 fi
-notes="## Changes
+# An unquoted heredoc, not a double-quoted string. The notes are prose with
+# quotation marks in them, and in a "..." assignment an unescaped " silently
+# ends the string and hands the rest of the paragraph to the shell as
+# commands — which is exactly what happened, mid-ship, after notarization and
+# before the tag:
+#
+#   ./ship.sh: line 187: all: command not found
+#
+# A heredoc still expands $variables, which this needs, but leaves quotes
+# alone. Backticks are still escaped, because it would run those.
+notes=$(cat <<EOF
+## Changes
 
 $changes
 
@@ -184,15 +198,15 @@ brew install --cask ttfx-screensaver
 Already installed? \`brew upgrade --cask ttfx-screensaver\`.
 
 Or download **ttfx-screensaver-$version.pkg** below and double-click it. The
-installer offers "for all users" or "for me only"; the second needs no
+installer offers **for all users** or **for me only**; the second needs no
 password. Signed, notarized and stapled, universal (Apple Silicon and Intel),
 macOS 11 and later.
 
 The \`.zip\` below is the bare bundle for anyone who prefers to place it by
 hand. Prefer the package: a downloaded zip is quarantined, and a quarantined
 screen saver is loaded through a Gatekeeper gate that can refuse it with
-*\"Apple could not verify 'ttfx.saver' is free of malware\"* and no way
-forward in the dialog. If you hit that, either install the package or run:
+*"Apple could not verify 'ttfx.saver' is free of malware"* and no way forward
+in the dialog. If you hit that, either install the package or run:
 
 \`\`\`sh
 xattr -dr com.apple.quarantine ~/Library/Screen\\ Savers/ttfx.saver
@@ -202,7 +216,9 @@ Files the installer lays down are never quarantined, so the package cannot
 land in that state.
 
 \`sha256 (pkg): $pkgsha\`
-\`sha256 (zip): $sha\`$compare"
+\`sha256 (zip): $sha\`$compare
+EOF
+)
 
 git tag -a "$tag" -m "$tag"
 git push -q origin "$tag"
