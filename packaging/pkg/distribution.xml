@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One package, both install domains.
+
+  Homebrew's pkg artifact always runs `installer -target /` as root, so the
+  local system domain has to be enabled or `brew install` of the cask cannot work
+  at all. Someone who double-clicks the download instead gets a destination
+  pane, and "for me only" needs no admin password.
+
+  What makes one package serve both is that the component package's
+  install-location is *relative* ("Library/Screen Savers"): the installer
+  resolves it against whichever domain root was chosen. An absolute
+  "/Library/Screen Savers" would pin it to one of them.
+
+  Why a package at all, rather than only the zip: a browser marks every
+  download with com.apple.quarantine, and a quarantined screen saver is
+  loaded through Gatekeeper's library-load gate rather than the app-launch
+  one. When that gate says no, the user gets "Apple could not verify ttfx.saver
+  is free of malware" with no Open Anyway button in the dialog. Files laid
+  down by the installer carry no quarantine in either domain — measured, both
+  ways, on a clean VM — so the gate never runs.
+-->
+<installer-gui-script minSpecVersion="2">
+    <title>ttfx screen saver</title>
+    <domains enable_anywhere="false" enable_currentUserHome="true" enable_localSystem="true"/>
+    <options customize="never" hostArchitectures="arm64,x86_64"/>
+    <volume-check>
+        <allowed-os-versions><os-version min="11.0"/></allowed-os-versions>
+    </volume-check>
+    <choices-outline><line choice="default"/></choices-outline>
+    <choice id="default"><pkg-ref id="gg.ka.ttfx"/></choice>
+    <pkg-ref id="gg.ka.ttfx" version="@VERSION@">component.pkg</pkg-ref>
+</installer-gui-script>

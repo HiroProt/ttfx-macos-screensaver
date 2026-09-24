@@ -1,16 +1,23 @@
 #!/bin/sh
 # Ship a release, end to end:
 #
-#   preflight → build + sign + notarize + staple → GitHub release →
-#   verify the published download the way a stranger's Mac will →
+#   preflight → build + sign + notarize + staple + package → GitHub release →
+#   verify the published downloads the way a stranger's Mac will →
 #   bump the Homebrew cask → push the tap
+#
+# Two artifacts ship: an installer package, which is what the cask and the
+# README point at, and the bare zipped bundle for people who want it. The
+# package exists because files an installer lays down carry no quarantine,
+# and a quarantined screen saver can be refused at load with "Apple could not
+# verify ttfx.saver is free of malware".
 #
 #   ./ship.sh              # ship the version in Resources/Info.plist
 #   ./ship.sh --dry-run    # do everything except publish and push
 #
 # Credentials come from 1Password so nothing secret lives on disk or in
 # shell history. Override the item with NOTARY_OP_ITEM if you move it.
-# Requires: op (signed in), gh (authenticated), a Developer ID identity.
+# Requires: op (signed in), gh (authenticated), and both Developer ID
+# certificates — Application (signs the bundle) and Installer (signs the pkg).
 set -e
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -38,6 +45,10 @@ op account list >/dev/null 2>&1 || die "op is not signed in — run: eval \$(op 
 gh auth status >/dev/null 2>&1 || die "gh is not authenticated — run: gh auth login"
 security find-identity -v -p codesigning | grep -q "Developer ID Application" \
   || die "no Developer ID Application identity in the keychain"
+# A second, different certificate — and `security find-identity` only lists it
+# without -p codesigning, because signing an installer is not code signing.
+security find-identity -v | grep -q "Developer ID Installer" \
+  || die "no Developer ID Installer identity in the keychain (the package needs it; create it at https://developer.apple.com/account/resources/certificates/add)"
 
 [ -z "$(git status --porcelain)" ] || die "working tree is dirty — commit or stash first"
 branch=$(git rev-parse --abbrev-ref HEAD)
@@ -79,33 +90,66 @@ say "Building and notarizing"
 ./release.sh --notarize
 
 zip="dist/ttfx-screensaver-$version.zip"
-[ -f "$zip" ] || die "expected artifact missing: $zip"
+pkg="dist/ttfx-screensaver-$version.pkg"
+for f in "$pkg" "$zip"; do
+  [ -f "$f" ] || die "expected artifact missing: $f"
+done
+pkgsha=$(shasum -a 256 "$pkg" | cut -d' ' -f1)
 sha=$(shasum -a 256 "$zip" | cut -d' ' -f1)
-echo "  artifact: $zip"
+echo "  package:  $pkg"
+echo "  sha256:   $pkgsha"
+echo "  zip:      $zip"
 echo "  sha256:   $sha"
 
-# Prove the ticket survived zipping and that Gatekeeper accepts the bundle
-# with the quarantine flag a browser download would attach. Catching this
-# here beats catching it in someone's bug report.
-say "Verifying the artifact as a downloader would see it"
-tmp=$(mktemp -d)
+# Prove both artifacts survive the trip, with the quarantine flag a browser
+# download attaches. Catching this here beats catching it in someone's bug
+# report — which is exactly how the gate below was found missing.
+say "Verifying the artifacts as a downloader would see them"
+work=$(mktemp -d)
+probe="$work/gatekeeper-probe"
+cc -o "$probe" packaging/gatekeeper-probe.c || die "cannot build the Gatekeeper probe"
+
+tmp="$work/zip"
 ditto -x -k "$zip" "$tmp"
-xattr -w com.apple.quarantine "0083;00000000;Safari;" "$tmp/ttfx.saver"
+xattr -w -r com.apple.quarantine "0083;00000000;Safari;$(uuidgen)" "$tmp/ttfx.saver"
 xcrun stapler validate "$tmp/ttfx.saver" >/dev/null || die "staple validation failed"
 spctl --assess --type install --context context:primary-signature -vv "$tmp/ttfx.saver" 2>&1 \
   | grep -q "source=Notarized Developer ID" \
   || die "Gatekeeper did not accept the notarized bundle"
+# spctl answers "would this be allowed to open". Nothing ever opens a screen
+# saver: legacyScreenSaver dlopen's it, through a second gate spctl does not
+# consult. That gate is what produces "Apple could not verify ttfx.saver is
+# free of malware", so it is the one worth asking. A release passed every
+# check above and still hit it.
+"$probe" "$tmp/ttfx.saver/Contents/MacOS/ttfx-saver" >/dev/null \
+  || die "quarantined bundle refused by the library-load gate"
 archs=$(lipo -archs "$tmp/ttfx.saver/Contents/MacOS/ttfx-saver")
 echo "$archs" | grep -q arm64  || die "missing arm64 slice"
 echo "$archs" | grep -q x86_64 || die "missing x86_64 slice"
-rm -rf "$tmp"
-echo "  stapled, notarized, universal ($archs)"
+echo "  zip:      stapled, notarized, loads under quarantine, universal ($archs)"
+
+xcrun stapler validate "$pkg" >/dev/null || die "package staple validation failed"
+spctl --assess --type install -vv "$pkg" 2>&1 \
+  | grep -q "source=Notarized Developer ID" \
+  || die "Gatekeeper did not accept the notarized package"
+# The payload must carry no quarantine of its own. pkgbuild copies extended
+# attributes verbatim and the installer restores them, so one picked up on the
+# build tree would be stamped onto every installed file — reintroducing, from
+# inside the fix, the exact thing the package exists to prevent.
+pkgutil --expand-full "$pkg" "$work/expanded" >/dev/null \
+  || die "cannot expand the package to inspect its payload"
+if xattr -p -r com.apple.quarantine "$work/expanded" 2>/dev/null | grep -q .; then
+  die "package payload carries com.apple.quarantine"
+fi
+echo "  package:  stapled, notarized, payload carries no quarantine"
+rm -rf "$work"
 
 if $DRY_RUN; then
   say "Dry run: stopping before publish"
   echo "  would tag:     $tag"
+  echo "  would upload:  $pkg"
   echo "  would upload:  $zip"
-  echo "  would set cask version=$version sha256=$sha"
+  echo "  would set cask version=$version sha256=$pkgsha"
   exit 0
 fi
 
@@ -139,42 +183,65 @@ brew install --cask ttfx-screensaver
 
 Already installed? \`brew upgrade --cask ttfx-screensaver\`.
 
-Or download the zip below, unzip, and double-click \`ttfx.saver\`. Signed,
-notarized and stapled, so there's no Gatekeeper prompt. Universal (Apple
-Silicon and Intel), macOS 11 and later.
+Or download **ttfx-screensaver-$version.pkg** below and double-click it. The
+installer offers "for all users" or "for me only"; the second needs no
+password. Signed, notarized and stapled, universal (Apple Silicon and Intel),
+macOS 11 and later.
 
-\`sha256: $sha\`$compare"
+The \`.zip\` below is the bare bundle for anyone who prefers to place it by
+hand. Prefer the package: a downloaded zip is quarantined, and a quarantined
+screen saver is loaded through a Gatekeeper gate that can refuse it with
+*\"Apple could not verify 'ttfx.saver' is free of malware\"* and no way
+forward in the dialog. If you hit that, either install the package or run:
+
+\`\`\`sh
+xattr -dr com.apple.quarantine ~/Library/Screen\\ Savers/ttfx.saver
+\`\`\`
+
+Files the installer lays down are never quarantined, so the package cannot
+land in that state.
+
+\`sha256 (pkg): $pkgsha\`
+\`sha256 (zip): $sha\`$compare"
 
 git tag -a "$tag" -m "$tag"
 git push -q origin "$tag"
-printf '%s' "$notes" | gh release create "$tag" "$zip" --title "$tag" --notes-file - >/dev/null
+printf '%s' "$notes" | gh release create "$tag" "$pkg" "$zip" --title "$tag" --notes-file - >/dev/null
 echo "  $(gh release view "$tag" --json url --jq .url)"
 
 # The release must be downloadable before the cask points at it, or the
 # first `brew install` after this races the CDN and 404s.
-say "Confirming the published asset is downloadable"
-url="https://github.com/HiroProt/ttfx-macos-screensaver/releases/download/$tag/ttfx-screensaver-$version.zip"
+say "Confirming the published assets are downloadable"
+base="https://github.com/HiroProt/ttfx-macos-screensaver/releases/download/$tag"
 dl=$(mktemp -d)
-i=0
-until curl -sfL -o "$dl/x.zip" "$url" 2>/dev/null; do
-  i=$((i + 1))
-  [ $i -gt 12 ] && die "published asset not downloadable after 60s: $url"
-  sleep 5
+for pair in "ttfx-screensaver-$version.pkg $pkgsha" "ttfx-screensaver-$version.zip $sha"; do
+  name=${pair% *}
+  want=${pair#* }
+  i=0
+  until curl -sfL -o "$dl/$name" "$base/$name" 2>/dev/null; do
+    i=$((i + 1))
+    [ $i -gt 12 ] && die "published asset not downloadable after 60s: $base/$name"
+    sleep 5
+  done
+  [ "$(shasum -a 256 "$dl/$name" | cut -d' ' -f1)" = "$want" ] \
+    || die "published $name sha256 does not match the local artifact"
+  echo "  $name downloaded, sha256 matches"
 done
-[ "$(shasum -a 256 "$dl/x.zip" | cut -d' ' -f1)" = "$sha" ] \
-  || die "published asset sha256 does not match the local artifact"
 rm -rf "$dl"
-echo "  downloaded and sha256 matches"
 
 # --- homebrew --------------------------------------------------------------
 
 say "Updating the Homebrew cask"
+# The cask installs the package, so it is the package's checksum that goes in.
 /usr/bin/sed -i '' \
   -e "s|^  version \".*\"|  version \"$version\"|" \
-  -e "s|^  sha256 \".*\"|  sha256 \"$sha\"|" \
+  -e "s|^  sha256 \".*\"|  sha256 \"$pkgsha\"|" \
   "$CASK"
 grep -q "version \"$version\"" "$CASK" || die "cask version did not update"
-grep -q "sha256 \"$sha\"" "$CASK"     || die "cask sha256 did not update"
+grep -q "sha256 \"$pkgsha\"" "$CASK"   || die "cask sha256 did not update"
+# Guard the pairing itself: a cask left pointing at the zip would install a
+# quarantined bundle again, which is the whole bug.
+grep -q 'pkg "ttfx-screensaver' "$CASK" || die "cask does not install the package"
 git -C "$TAP_DIR" commit -qam "ttfx-screensaver $version"
 git -C "$TAP_DIR" push -q origin main
 echo "  tap updated to $version"

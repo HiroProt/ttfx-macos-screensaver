@@ -36,6 +36,16 @@ jobs:
             nm -gU "$bin" | grep -q "_$sym" || { echo "missing symbol: $sym"; exit 1; }
           done
           codesign --verify --verbose ttfx.saver
+      - name: Verify the packaging inputs
+        run: |
+          set -e
+          # An XML comment containing "--" is not a comment, and productbuild
+          # only says so at release time, on a workstation, mid-ship.
+          xmllint --noout packaging/pkg/distribution.xml
+          sh -n packaging/pkg/scripts/postinstall
+          [ -x packaging/pkg/scripts/postinstall ] \
+            || { echo "postinstall is not executable"; exit 1; }
+          cc -o /tmp/gatekeeper-probe packaging/gatekeeper-probe.c
       - uses: actions/upload-artifact@v4
         with:
           name: ttfx.saver-unsigned

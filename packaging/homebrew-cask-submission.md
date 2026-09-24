@@ -42,6 +42,15 @@ too.
 
 ## Keeping the tap in sync
 
-Every release needs the tap's `version` and `sha256` bumped. The sha256 of
-the release zip is printed by `release.sh`, and is also what
-`shasum -a 256 dist/ttfx-screensaver-<version>.zip` reports.
+Every release needs the tap's `version` and `sha256` bumped. The cask
+installs the **package**, so it is the package's checksum that goes in —
+`release.sh` prints both, and `ship.sh` writes the right one and then refuses
+to continue if the cask is not pointing at a `pkg` at all.
+
+That pairing matters more than it looks. The cask used to use the
+`screen_saver` artifact on the bare zip, which meant Homebrew moved the
+bundle into `~/Library/Screen Savers` with `com.apple.quarantine` written
+onto every file inside it. That is the state in which Gatekeeper's
+library-load gate can refuse to `dlopen` the saver and tell the user macOS
+could not verify it is free of malware. Files laid down by an installer carry
+no quarantine, which is the whole reason the cask installs a package now.

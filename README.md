@@ -41,19 +41,19 @@ upstream's — see the attribution above.*
 
 ## Install
 
-Download the zip from the
-[latest release](https://github.com/HiroProt/ttfx-macos-screensaver/releases/latest),
-unzip it, and double-click `ttfx.saver`. macOS opens Screen Saver settings
-and offers to install it; pick **ttfx** under "Other".
+Download the `.pkg` from the
+[latest release](https://github.com/HiroProt/ttfx-macos-screensaver/releases/latest)
+and double-click it. The installer offers **for all users** or **for me
+only**; the second needs no password. Then open Screen Saver settings and
+pick **ttfx**.
 
-The download is signed and notarized, so there is no Gatekeeper warning and
-no `xattr` incantation. Universal binary, macOS 11 and later, Apple Silicon
-and Intel.
+Signed and notarized, universal binary, macOS 11 and later, Apple Silicon and
+Intel.
 
 ![install](docs/install.png)
 
-*There is no installer and no app — macOS's own Screen Saver settings is the
-whole interface. Once installed, ttfx appears under **Custom**, and everything
+*There is still no app — macOS's own Screen Saver settings is the whole
+interface. Once installed, ttfx appears under **Custom**, and everything
 configurable is behind **Options…**.*
 
 Or with Homebrew:
@@ -63,6 +63,35 @@ brew tap HiroProt/tap
 brew trust --cask HiroProt/tap/ttfx-screensaver   # Homebrew requires this for third-party taps
 brew install --cask ttfx-screensaver
 ```
+
+<details>
+<summary>Why a package, when the bundle is just a folder</summary>
+
+Because a downloaded one is quarantined, and a quarantined screen saver is
+not *opened* — it is `dlopen`'d into `legacyScreenSaver`. That goes through a
+different Gatekeeper gate than the one an app's first launch goes through,
+and when it refuses, what you get is
+
+> "ttfx.saver" Not Opened — Apple could not verify "ttfx.saver" is free of
+> malware that may harm your Mac or compromise your privacy.
+
+with **Move to Trash** and **Done** as the only buttons. Correct signing does
+not remove that gate; it only makes it usually say yes. It said no to a
+correctly signed, notarized, stapled, online-verified copy of this very
+screen saver, installed through Homebrew, on macOS 27.
+
+Files an installer lays down carry no `com.apple.quarantine` at all — in
+either install domain, measured on a clean VM — so with a package the gate is
+never consulted.
+
+The zip is still published for anyone who would rather place the bundle by
+hand. If you use it and hit that dialog:
+
+```sh
+xattr -dr com.apple.quarantine ~/Library/Screen\ Savers/ttfx.saver
+```
+
+</details>
 
 <details>
 <summary>Build it yourself instead</summary>
@@ -248,7 +277,15 @@ Release downloads are notarized and don't need this.
 ## Uninstall
 
 ```sh
-rm -rf ~/Library/Screen\ Savers/ttfx.saver
+brew uninstall --cask ttfx-screensaver      # if you installed it that way
+```
+
+Or by hand, depending on where the installer put it:
+
+```sh
+sudo rm -rf /Library/Screen\ Savers/ttfx.saver   # "for all users"
+rm -rf ~/Library/Screen\ Savers/ttfx.saver       # "for me only", or the zip
+sudo pkgutil --forget gg.ka.ttfx
 rm -f ~/Library/Containers/com.apple.ScreenSaver.Engine.legacyScreenSaver/\
 Data/Library/Preferences/ByHost/gg.ka.ttfx.*.plist
 ```

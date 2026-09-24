@@ -1,0 +1,41 @@
+#!/bin/sh
+# Runs as root after the payload lands. Both jobs here are about what an
+# *earlier* install left behind, not about this one.
+#
+#   $2  where this install put the bundle
+#   $3  the target volume ("/" for a system install, the home for user-only)
+
+installed="$2/ttfx.saver"
+
+# 1. Retire a shadowing per-user copy.
+#
+#    macOS searches ~/Library/Screen Savers before /Library/Screen Savers, so
+#    a leftover copy from an older zip or from the cask's pre-package days
+#    keeps being the one that loads. That copy is quarantined — it is the
+#    exact thing this package exists to stop shipping — so leaving it in place
+#    would install the fix and then not use it.
+#
+#    Narrow on purpose: only a directory named ttfx.saver, only when its
+#    Info.plist says it is ours, and never the one just installed.
+user=$(stat -f %Su /dev/console 2>/dev/null)
+if [ -n "$user" ] && [ "$user" != "root" ]; then
+    home=$(dscl . -read "/Users/$user" NFSHomeDirectory 2>/dev/null | sed 's/^NFSHomeDirectory: *//')
+    stale="$home/Library/Screen Savers/ttfx.saver"
+    if [ -n "$home" ] && [ -d "$stale" ] && [ "$stale" != "$installed" ]; then
+        id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+             "$stale/Contents/Info.plist" 2>/dev/null)
+        if [ "$id" = "gg.ka.ttfx" ]; then
+            rm -rf "$stale"
+        fi
+    fi
+fi
+
+# 2. The screen saver host caches the bundle it loaded. Without this, an
+#    upgrade keeps running the old code until the next logout — the same
+#    reason build.sh --install does it.
+/usr/bin/killall legacyScreenSaver 2>/dev/null
+/usr/bin/killall ScreenSaverEngine 2>/dev/null
+
+# Neither step above is allowed to fail the install: both are cleanup of a
+# previous state, and the payload is already correctly in place.
+exit 0
